@@ -89,11 +89,15 @@ export function SubmissionsTable({
         </thead>
         <tbody className="bg-white divide-y divide-gray-200">
           {submissions.map((sub, idx) => {
-            const key = sub.email ?? String(idx);
-            const isUpdating = Boolean(visitUpdating[key]);
+            const emailKey =
+              typeof sub.email === "string" ? sub.email.toLowerCase() : null;
+            const rowKey = sub.email ?? String(idx);
+            const isUpdating = emailKey
+              ? Boolean(visitUpdating[emailKey])
+              : false;
             return (
               <tr
-              key={key}
+              key={rowKey}
               className="hover:bg-gray-50 transition-colors"
             >
               <td className="px-3 py-4 text-sm text-gray-900">{sub.email}</td>

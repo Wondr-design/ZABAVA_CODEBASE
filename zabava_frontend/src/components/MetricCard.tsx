@@ -17,7 +17,7 @@ export function MetricCard({
 }: MetricCardProps) {
   return (
     <Card
-      className={`glass-card hover-lift rounded-2xl ${className}`}
+      className={`rounded-2xl border border-slate-200 bg-white shadow-sm ${className}`}
       style={style}
     >
       <CardContent className="p-6">
@@ -25,7 +25,7 @@ export function MetricCard({
           <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             {title}
           </p>
-          <p className="text-3xl font-bold text-gradient">{value}</p>
+          <p className="text-3xl font-bold text-slate-900">{value}</p>
           {subtitle && (
             <p className="text-sm text-muted-foreground leading-relaxed">
               {subtitle}

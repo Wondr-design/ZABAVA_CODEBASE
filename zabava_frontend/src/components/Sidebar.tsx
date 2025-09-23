@@ -59,12 +59,12 @@ export function Sidebar({ user, onLogout, onViewChange, activeView, className }:
   // Define navigation items based on role
   const mainNavItems: NavItem[] = isAdmin
     ? [
-        { id: 'overview', label: 'Dashboard', icon: LayoutDashboard },
-        { id: 'submissions', label: 'Submissions', icon: FileText },
-        { id: 'partners', label: 'Partners', icon: Users },
-        { id: 'invites', label: 'Invite Manager', icon: UserPlus },
-        { id: 'rewards', label: 'Rewards', icon: Gift },
-        { id: 'analytics', label: 'Analytics', icon: BarChart3 },
+        { id: 'overview', label: 'Dashboard', icon: LayoutDashboard, href: '/admin/dashboard' },
+        { id: 'submissions', label: 'Submissions', icon: FileText, href: '/admin/submissions' },
+        { id: 'partners', label: 'Partners', icon: Users, href: '/admin/partners' },
+        { id: 'invites', label: 'Invite Manager', icon: UserPlus, href: '/admin/invites' },
+        { id: 'rewards', label: 'Rewards', icon: Gift, href: '/admin/rewards' },
+        { id: 'analytics', label: 'Analytics', icon: BarChart3, href: '/admin/analytics' },
       ]
     : [
         { id: 'overview', label: 'Overview', icon: LayoutDashboard, href: '/dashboard#overview' },
@@ -76,24 +76,33 @@ export function Sidebar({ user, onLogout, onViewChange, activeView, className }:
   const secondaryNavItems: NavItem[] = [];
 
   const handleNavClick = (item: NavItem) => {
-    // For admin dashboard, use internal navigation
-    if (isAdmin && onViewChange) {
-      onViewChange(item.id);
-      return;
-    }
-    
     if (item.onClick) {
       item.onClick();
+      return;
+    }
+
+    if (isAdmin) {
+      onViewChange?.(item.id);
+      if (item.href) {
+        navigate(item.href);
+      }
     } else if (item.href) {
       if (item.href.startsWith('#')) {
-        // Handle hash navigation for sections
         const section = item.href.substring(1);
         window.location.hash = section;
+      } else if (item.href.includes('#')) {
+        const [path, hash] = item.href.split('#');
+        if (path) {
+          navigate(path);
+        }
+        if (hash) {
+          window.location.hash = `#${hash}`;
+        }
       } else {
         navigate(item.href);
       }
     }
-    
+
     if (item.children) {
       const newExpanded = new Set(expandedItems);
       if (newExpanded.has(item.id)) {
@@ -106,19 +115,27 @@ export function Sidebar({ user, onLogout, onViewChange, activeView, className }:
   };
 
   const isActive = (item: NavItem) => {
-    // For admin, use activeView prop
-    if (isAdmin && activeView) {
-      return item.id === activeView;
+    if (isAdmin) {
+      if (item.href) {
+        const normalizedPath = location.pathname.replace(/\/$/, '');
+        const normalizedHref = item.href.replace(/\/$/, '');
+        if (normalizedHref === '/admin/dashboard') {
+          return normalizedPath === '/admin' || normalizedPath === normalizedHref;
+        }
+        return normalizedPath === normalizedHref;
+      }
+      return activeView ? item.id === activeView : false;
     }
-    
+
     if (item.href) {
       if (item.href.includes('#')) {
         const [path, hash] = item.href.split('#');
-        return location.pathname === (path || location.pathname) && 
-               location.hash === `#${hash}`;
+        const matchesPath = location.pathname === (path || location.pathname);
+        return matchesPath && location.hash === `#${hash}`;
       }
       return location.pathname === item.href;
     }
+
     return false;
   };
 
