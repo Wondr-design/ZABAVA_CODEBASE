@@ -1,7 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import PrivateRoute from "./components/PrivateRoute";
 import Login from "./pages/Login";
-import PartnerDashboard from "./pages/PartnerDashboardLight";
+import PartnerDashboard from "./pages/PartnerDashboard";
 import Signup from "./pages/Signup";
 import AdminRoute from "./components/AdminRoute";
 import InviteManager from "./pages/admin/InviteManager";

@@ -5,6 +5,7 @@ import {
   useState,
   type ChangeEvent,
   type CSSProperties,
+  type ComponentType,
   type RefObject,
 } from "react";
 import { useNavigate } from "react-router-dom";
@@ -64,7 +65,7 @@ interface FiltersState {
 }
 
 interface NavigationItem {
-  id: "overview" | "submissions";
+  id: "overview" | "submissions" | "redemptions";
   label: string;
   active: boolean;
 }
@@ -97,9 +98,10 @@ export default function PartnerDashboard() {
   const partnerId = user?.partnerId || "";
   const userEmail = user?.email || "";
 
-  const primaryButtonClass = "bg-white text-slate-950 border border-white/80";
+  const primaryButtonClass =
+    "border border-emerald-600 bg-emerald-600 text-white hover:bg-emerald-700";
   const secondaryButtonClass =
-    "bg-white/70 text-slate-950 border border-white/60";
+    "border border-slate-200 bg-white text-slate-600 hover:bg-slate-100";
 
   const { data, loading, error, refetch } = usePartnerData(partnerId, {
     token,
@@ -182,6 +184,9 @@ export default function PartnerDashboard() {
   const [visitUpdating, setVisitUpdating] = useState<Record<string, boolean>>(
     {}
   );
+  const [visitFeedback, setVisitFeedback] = useState<
+    { type: "success" | "error"; message: string } | null
+  >(null);
 
   const metrics = useMemo<MetricsSummary>(() => {
     const count = submissions.length;
@@ -363,10 +368,26 @@ export default function PartnerDashboard() {
     window.URL.revokeObjectURL(url);
   };
 
+  useEffect(() => {
+    if (!visitFeedback) {
+      return;
+    }
+    const timer = window.setTimeout(() => setVisitFeedback(null), 5000);
+    return () => window.clearTimeout(timer);
+  }, [visitFeedback]);
+
   const handleToggleVisited = async (submission: SubmissionRecord) => {
-    if (!token || !submission?.email) return;
-    const email = submission.email;
+    if (!token) return;
+    const email = String(submission?.email || "").trim().toLowerCase();
+    if (!email) {
+      setVisitFeedback({
+        type: "error",
+        message: "Unable to confirm the visit because the submission is missing an email address.",
+      });
+      return;
+    }
     setVisitUpdating((prev) => ({ ...prev, [email]: true }));
+    setVisitFeedback(null);
     try {
       const response = await fetch(`${API_BASE_URL}/api/partner/visit`, {
         method: "POST",
@@ -381,12 +402,26 @@ export default function PartnerDashboard() {
       });
 
       if (!response.ok) {
-        throw new Error(`Visit update failed: ${response.status}`);
+        const payload = await response.json().catch(() => null);
+        const details =
+          typeof payload?.error === "string"
+            ? payload.error
+            : `Status ${response.status}`;
+        throw new Error(`Visit update failed: ${details}`);
       }
 
       await refetch();
+      setVisitFeedback({
+        type: "success",
+        message: `${submission.email ?? "Guest"} has been marked as visited.`,
+      });
     } catch (err) {
       console.error("Failed to update visit status", err);
+      const errorMessage =
+        err instanceof Error && err.message
+          ? err.message
+          : "An unexpected error occurred while confirming the visit.";
+      setVisitFeedback({ type: "error", message: errorMessage });
     } finally {
       setVisitUpdating((prev) => {
         const next = { ...prev };
@@ -585,20 +620,20 @@ export default function PartnerDashboard() {
 
   const tooltipStyles = useMemo<CSSProperties>(
     () => ({
-      background: "rgba(15, 23, 42, 0.92)",
+      background: "rgba(255, 255, 255, 0.95)",
       borderRadius: 12,
-      border: "1px solid rgba(148, 163, 184, 0.25)",
+      border: "1px solid rgba(15, 23, 42, 0.08)",
       backdropFilter: "blur(10px)",
-      color: "#e2e8f0",
+      color: "#0f172a",
     }),
     []
   );
   const tooltipLabelStyle = useMemo<CSSProperties>(
-    () => ({ color: "#e2e8f0", fontWeight: 600 }),
+    () => ({ color: "#0f172a", fontWeight: 600 }),
     []
   );
   const tooltipItemStyle = useMemo<CSSProperties>(
-    () => ({ color: "#38bdf8", fontWeight: 500 }),
+    () => ({ color: "#047857", fontWeight: 500 }),
     []
   );
 
@@ -608,30 +643,20 @@ export default function PartnerDashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-slate-100">
-      {/* Minimal background effects */}
-      <div className="absolute inset-0 bg-gradient-to-br from-emerald-900/3 via-transparent to-teal-900/3"></div>
-      <div className="absolute top-1/3 left-1/4 w-96 h-96 bg-emerald-500/[0.02] rounded-full blur-3xl"></div>
-      <div className="absolute bottom-1/3 right-1/4 w-96 h-96 bg-teal-500/[0.02] rounded-full blur-3xl"></div>
-
-      <div className="relative z-10">
-        <header className="glass-card border-b border-white/10 backdrop-blur-xl sticky top-0">
+    <div className="min-h-screen bg-slate-50 text-slate-900">
+      <div className="flex min-h-screen flex-col">
+        <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/90 backdrop-blur">
           <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-6 px-6 py-4">
             <div className="flex items-center gap-4">
-              <div className="relative">
-                <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center shadow-lg">
-                  <span className="text-white font-bold text-lg">
-                    {partnerId ? partnerId.substring(0, 1).toUpperCase() : "P"}
-                  </span>
-                </div>
-                <div className="absolute -inset-0.5 bg-gradient-to-br from-emerald-400/20 to-teal-500/20 rounded-xl blur opacity-75"></div>
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-600 text-white shadow-sm">
+                <span className="text-lg font-semibold">
+                  {partnerId ? partnerId.substring(0, 1).toUpperCase() : "P"}
+                </span>
               </div>
               <div>
-                <div className="flex items-center gap-3 mb-1">
-                  <h1 className="text-xl font-bold text-gradient">
-                    Partner Dashboard
-                  </h1>
-                  <Badge className="glass-card-light text-emerald-200 border-emerald-500/30 px-2 py-0.5 text-xs">
+                <div className="mb-1 flex items-center gap-3">
+                  <h1 className="text-xl font-semibold text-slate-900">Partner Dashboard</h1>
+                  <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700">
                     Live
                   </Badge>
                 </div>
@@ -639,18 +664,16 @@ export default function PartnerDashboard() {
                   {partnerLabel || partnerId || "Partner Console"}
                 </p>
                 {lastUpdatedLabel && (
-                  <p className="text-xs text-muted-foreground/70">
-                    Last synced {lastUpdatedLabel}
-                  </p>
+                  <p className="text-xs text-slate-500">Last synced {lastUpdatedLabel}</p>
                 )}
               </div>
             </div>
 
             <div className="flex items-center gap-2">
               {userEmail && (
-                <div className="glass-card-light rounded-xl px-3 py-2 text-center">
-                  <p className="text-xs font-medium text-white">{userEmail}</p>
-                  <p className="text-xs text-muted-foreground uppercase tracking-wider">
+                <div className="rounded-xl border border-slate-200 bg-slate-100 px-3 py-2 text-center">
+                  <p className="text-xs font-medium text-slate-900">{userEmail}</p>
+                  <p className="text-xs uppercase tracking-wider text-slate-500">
                     Partner
                   </p>
                 </div>
@@ -659,33 +682,35 @@ export default function PartnerDashboard() {
                 onClick={handleRefresh}
                 disabled={refreshing || loading}
                 size="sm"
-                className="btn-minimal rounded-lg px-3 py-1.5 text-xs font-medium focus-ring disabled:opacity-50"
+                variant="outline"
+                className="gap-1.5"
               >
-                <RefreshCcw className="size-3 mr-1.5" />
+                <RefreshCcw className={cn("h-4 w-4", refreshing && "animate-spin")} />
                 {refreshing ? "Refreshing" : "Refresh"}
               </Button>
               <Button
                 onClick={handleLogout}
                 size="sm"
-                className="btn-minimal rounded-lg px-3 py-1.5 text-xs font-medium text-red-200 focus-ring"
+                variant="outline"
+                className="gap-1.5 border-red-200 text-red-600 hover:bg-red-50"
               >
-                <LogOut className="size-3 mr-1.5" />
+                <LogOut className="h-4 w-4" />
                 Logout
               </Button>
             </div>
           </div>
         </header>
 
-        <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col space-y-8 px-6 py-8">
+        <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-8 px-6 py-8">
           {error && (
-            <div className="glass-card rounded-xl border border-red-400/20 bg-red-500/5 p-4 text-sm text-red-300">
+            <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
               {error.message ||
                 "Unable to load partner data. Please try again."}
             </div>
           )}
 
           {/* Navigation Tabs */}
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             {navigationItems.map((item) => (
               <Button
                 key={item.id}
@@ -693,10 +718,10 @@ export default function PartnerDashboard() {
                 size="sm"
                 onClick={() => setActiveSection(item.id)}
                 className={cn(
-                  "transition-all",
+                  "rounded-full px-4 text-sm font-medium transition-colors",
                   item.active
-                    ? "bg-emerald-500/20 text-emerald-200 border-emerald-500/30"
-                    : "glass-card-light text-slate-300 hover:text-white"
+                    ? "bg-emerald-600 text-white hover:bg-emerald-700"
+                    : "border-slate-200 bg-white text-slate-600 hover:bg-slate-100"
                 )}
               >
                 {item.label}
@@ -749,9 +774,9 @@ export default function PartnerDashboard() {
 
           {activeSection === "overview" && (
             <section className="grid gap-6 xl:grid-cols-3">
-              <Card className="glass-card xl:col-span-2 rounded-xl">
+              <Card className="xl:col-span-2 rounded-xl border border-slate-200 bg-white shadow-sm">
                 <CardHeader className="pb-4">
-                  <CardTitle className="text-lg font-bold text-gradient">
+                  <CardTitle className="text-lg font-semibold text-slate-900">
                     Revenue trend
                   </CardTitle>
                   <CardDescription className="text-muted-foreground text-sm">
@@ -760,7 +785,7 @@ export default function PartnerDashboard() {
                 </CardHeader>
                 <CardContent className="h-[320px] px-0 pb-0">
                   {loading && revenueTrend.length === 0 ? (
-                    <Skeleton className="h-full w-full bg-white/10" />
+                    <Skeleton className="h-full w-full bg-slate-200" />
                   ) : revenueTrend.length ? (
                     <ResponsiveContainer width="100%" height="100%">
                       <LineChart data={revenueTrend}>
@@ -769,7 +794,7 @@ export default function PartnerDashboard() {
                           stroke="rgba(148, 163, 184, 0.4)"
                           tickLine={false}
                           tick={{
-                            fill: "rgba(226, 232, 240, 0.75)",
+                            fill: "rgba(71, 85, 105, 0.9)",
                             fontSize: 12,
                           }}
                         />
@@ -781,7 +806,7 @@ export default function PartnerDashboard() {
                           width={60}
                           tickLine={false}
                           tick={{
-                            fill: "rgba(226, 232, 240, 0.75)",
+                            fill: "rgba(71, 85, 105, 0.9)",
                             fontSize: 12,
                           }}
                         />
@@ -796,7 +821,7 @@ export default function PartnerDashboard() {
                         />
                         <Legend
                           wrapperStyle={{
-                            color: "rgba(226, 232, 240, 0.8)",
+                            color: "#475569",
                             paddingTop: 12,
                           }}
                         />
@@ -816,12 +841,12 @@ export default function PartnerDashboard() {
                     </div>
                   )}
                 </CardContent>
-                <CardFooter className="flex flex-wrap gap-6 border-t border-white/10 bg-white/[0.04] py-4 text-sm text-slate-300">
+                <CardFooter className="flex flex-wrap gap-6 border-t border-slate-200 bg-slate-50 py-4 text-sm text-slate-600">
                   <div>
                     <p className="text-[11px] uppercase tracking-wide text-slate-500">
                       Highest booking
                     </p>
-                    <p className="mt-1 font-medium text-white">
+                    <p className="mt-1 font-medium text-slate-900">
                       {bestSubmission
                         ? currencyFormatter.format(
                             bestSubmission.totalPrice || 0
@@ -833,7 +858,7 @@ export default function PartnerDashboard() {
                     <p className="text-[11px] uppercase tracking-wide text-slate-500">
                       Average value
                     </p>
-                    <p className="mt-1 font-medium text-white">
+                    <p className="mt-1 font-medium text-slate-900">
                       {currencyFormatterDetailed.format(averageRevenue)}
                     </p>
                   </div>
@@ -841,16 +866,16 @@ export default function PartnerDashboard() {
                     <p className="text-[11px] uppercase tracking-wide text-slate-500">
                       Total revenue
                     </p>
-                    <p className="mt-1 font-medium text-white">
+                    <p className="mt-1 font-medium text-slate-900">
                       {currencyFormatter.format(totalRevenue)}
                     </p>
                   </div>
                 </CardFooter>
               </Card>
 
-              <Card className="glass-card rounded-xl">
+              <Card className="rounded-xl border border-slate-200 bg-white shadow-sm">
                 <CardHeader className="pb-4">
-                  <CardTitle className="text-lg font-bold text-gradient">
+                  <CardTitle className="text-lg font-semibold text-slate-900">
                     Ticket distribution
                   </CardTitle>
                   <CardDescription className="text-muted-foreground text-sm">
@@ -859,7 +884,7 @@ export default function PartnerDashboard() {
                 </CardHeader>
                 <CardContent className="h-[320px] px-0 pb-0">
                   {loading && pieData.length === 0 ? (
-                    <Skeleton className="h-full w-full bg-white/10" />
+                    <Skeleton className="h-full w-full bg-slate-200" />
                   ) : pieData.length ? (
                     <ResponsiveContainer width="100%" height="100%">
                       <PieChart>
@@ -882,7 +907,7 @@ export default function PartnerDashboard() {
                         <Tooltip
                           contentStyle={tooltipStyles}
                           labelStyle={tooltipLabelStyle}
-                          itemStyle={{ color: "#cbd5f5" }}
+                          itemStyle={{ color: "#047857" }}
                           formatter={(value, name) => [
                             `${value} submissions`,
                             name,
@@ -897,7 +922,7 @@ export default function PartnerDashboard() {
                   )}
                 </CardContent>
                 {topTicketTypes.length ? (
-                  <CardFooter className="flex flex-col gap-3 border-t border-white/10 bg-white/[0.04] py-4 text-sm text-slate-300">
+                  <CardFooter className="flex flex-col gap-3 border-t border-slate-200 bg-slate-50 py-4 text-sm text-slate-600">
                     {topTicketTypes.map((item, index) => (
                       <div
                         key={item.name}
@@ -910,11 +935,11 @@ export default function PartnerDashboard() {
                               backgroundColor: COLORS[index % COLORS.length],
                             }}
                           />
-                          <span className="font-medium text-white">
+                          <span className="font-medium text-slate-900">
                             {item.name}
                           </span>
                         </div>
-                        <span className="text-xs text-slate-400">
+                        <span className="text-xs text-slate-500">
                           {metrics.count
                             ? `${((item.value / metrics.count) * 100).toFixed(
                                 0
@@ -932,10 +957,10 @@ export default function PartnerDashboard() {
 
           {activeSection === "submissions" && (
             <section ref={submissionsRef} className="">
-              <Card className="glass-card rounded-xl">
+              <Card className="rounded-xl border border-slate-200 bg-white shadow-sm">
                 <CardHeader className="flex flex-wrap items-center justify-between gap-4 space-y-0 pb-4">
                   <div>
-                    <CardTitle className="text-lg font-bold text-gradient">
+                    <CardTitle className="text-lg font-semibold text-slate-900">
                       Latest submissions
                     </CardTitle>
                     <CardDescription className="text-muted-foreground text-sm">
@@ -966,10 +991,10 @@ export default function PartnerDashboard() {
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-4 px-0">
-                  <div className="space-y-3 border-b border-white/10 bg-white/[0.03] px-4 py-4">
+                  <div className="space-y-3 border-b border-slate-200 bg-slate-50 px-4 py-4">
                     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                       <div className="flex flex-col gap-1">
-                        <label className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                        <label className="text-xs uppercase tracking-[0.2em] text-slate-500">
                           Search
                         </label>
                         <Input
@@ -978,11 +1003,11 @@ export default function PartnerDashboard() {
                             handleFilterChange("search", event.target.value)
                           }
                           placeholder="Search email, category, ticket"
-                          className="bg-slate-950/50 text-white"
+                          className="border border-slate-200 bg-white text-slate-900"
                         />
                       </div>
                       <div className="flex flex-col gap-1">
-                        <label className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                        <label className="text-xs uppercase tracking-[0.2em] text-slate-500">
                           Ticket type
                         </label>
                         <select
@@ -990,7 +1015,7 @@ export default function PartnerDashboard() {
                           onChange={(event: ChangeEvent<HTMLSelectElement>) =>
                             handleFilterChange("ticket", event.target.value)
                           }
-                          className="rounded-md border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-white"
+                          className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
                         >
                           <option value="all">All tickets</option>
                           {availableTickets.map((ticket) => (
@@ -1001,7 +1026,7 @@ export default function PartnerDashboard() {
                         </select>
                       </div>
                       <div className="flex flex-col gap-1">
-                        <label className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                        <label className="text-xs uppercase tracking-[0.2em] text-slate-500">
                           Visit status
                         </label>
                         <select
@@ -1012,7 +1037,7 @@ export default function PartnerDashboard() {
                               event.target.value as VisitFilter
                             )
                           }
-                          className="rounded-md border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-white"
+                          className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
                         >
                           <option value="all">All</option>
                           <option value="visited">Visited</option>
@@ -1021,7 +1046,7 @@ export default function PartnerDashboard() {
                       </div>
                       <div className="grid gap-3 sm:grid-cols-2">
                         <div className="flex flex-col gap-1">
-                          <label className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                          <label className="text-xs uppercase tracking-[0.2em] text-slate-500">
                             From
                           </label>
                           <Input
@@ -1033,11 +1058,11 @@ export default function PartnerDashboard() {
                                 event.target.value
                               )
                             }
-                            className="bg-slate-950/60 text-white"
+                            className="border border-slate-200 bg-white text-slate-900"
                           />
                         </div>
                         <div className="flex flex-col gap-1">
-                          <label className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                          <label className="text-xs uppercase tracking-[0.2em] text-slate-500">
                             To
                           </label>
                           <Input
@@ -1046,13 +1071,13 @@ export default function PartnerDashboard() {
                             onChange={(event: ChangeEvent<HTMLInputElement>) =>
                               handleFilterChange("endDate", event.target.value)
                             }
-                            className="bg-slate-950/60 text-white"
+                            className="border border-slate-200 bg-white text-slate-900"
                           />
                         </div>
                       </div>
                     </div>
                     <div className="flex flex-wrap items-center gap-3">
-                      <span className="text-xs text-slate-400">
+                      <span className="text-xs text-slate-500">
                         Showing {numberFormatter.format(filteredCount)} of{" "}
                         {numberFormatter.format(metrics.count)} submissions
                       </span>
@@ -1078,11 +1103,29 @@ export default function PartnerDashboard() {
                     </div>
                   </div>
 
+                  {visitFeedback ? (
+                    <div
+                      className={cn(
+                        "mb-4 rounded-md border px-3 py-2 text-sm",
+                        visitFeedback.type === "success"
+                          ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                          : "border-red-200 bg-red-50 text-red-700"
+                      )}
+                    >
+                      {visitFeedback.message}
+                    </div>
+                  ) : null}
+
                   <SubmissionsTable
                     submissions={filteredSubmissions}
                     isLoading={loading && submissions.length === 0}
                     onToggleVisited={handleToggleVisited}
                     visitUpdating={visitUpdating}
+                    emptyState={
+                      visitFeedback?.type === "error"
+                        ? visitFeedback.message
+                        : undefined
+                    }
                   />
                 </CardContent>
               </Card>
@@ -1105,13 +1148,13 @@ function BadgeWithIcon({
   icon,
   label,
 }: {
-  icon: React.ComponentType<{ className?: string }>;
+  icon: ComponentType<{ className?: string }>;
   label: string;
 }) {
   const Icon = icon;
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-2.5 py-1 text-xs text-slate-300">
-      <Icon className="size-3" />
+    <span className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-100 px-2.5 py-1 text-xs text-slate-600">
+      <Icon className="h-3.5 w-3.5 text-emerald-600" />
       {label}
     </span>
   );

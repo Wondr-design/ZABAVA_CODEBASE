@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useLocation, Routes, Route } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { useNotifications } from "@/contexts/NotificationContext";
@@ -21,10 +21,6 @@ import { SubmissionsTable } from "@/components/SubmissionsTable";
 import {
   LineChart,
   Line,
-  AreaChart,
-  Area,
-  BarChart,
-  Bar,
   PieChart,
   Pie,
   Cell,
@@ -61,8 +57,8 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
-import { API_BASE_URL, buildApiUrl } from "@/lib/config";
-import { SubmissionRecord } from "@/types/dashboard";
+import { buildApiUrl } from "@/lib/config";
+import { AdminPartnerSummary, SubmissionRecord } from "@/types/dashboard";
 
 const CHART_COLORS = ["#3b82f6", "#8b5cf6", "#10b981", "#f59e0b", "#ef4444"];
 
@@ -120,26 +116,100 @@ const formatRelativeTime = (timestamp: string) => {
   return format(date, "MMM d, yyyy");
 };
 
-// Mock data generators for charts
-const generateMockChartData = () => {
-  const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-  return days.map((day) => ({
-    date: day,
-    revenue: Math.floor(Math.random() * 5000) + 1000,
-    users: Math.floor(Math.random() * 200) + 50,
-    partners: Math.floor(Math.random() * 10) + 2,
-  }));
-};
+function toDisplayDate(iso: string): string {
+  const parsed = new Date(iso);
+  if (Number.isNaN(parsed.getTime())) {
+    return iso;
+  }
+  return parsed.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
+}
 
-const generateMockPieData = () => {
-  return [
-    { name: "LaserMaxx", value: 35000, revenue: 35000 },
-    { name: "Adventure Park", value: 28000, revenue: 28000 },
-    { name: "Bowling Center", value: 22000, revenue: 22000 },
-    { name: "Cinema Complex", value: 18000, revenue: 18000 },
-    { name: "Others", value: 15000, revenue: 15000 },
-  ];
-};
+function buildPartnerGrowthDataset(submissions: Submission[]): ChartDataPoint[] {
+  if (!Array.isArray(submissions) || submissions.length === 0) {
+    return [];
+  }
+
+  const aggregation = new Map<
+    string,
+    { revenue: number; users: number; partners: Set<string> }
+  >();
+
+  submissions.forEach((submission) => {
+    if (!submission.createdAt) {
+      return;
+    }
+    const timestamp = new Date(submission.createdAt);
+    if (Number.isNaN(timestamp.getTime())) {
+      return;
+    }
+    const key = timestamp.toISOString().slice(0, 10);
+    if (!aggregation.has(key)) {
+      aggregation.set(key, {
+        revenue: 0,
+        users: 0,
+        partners: new Set<string>(),
+      });
+    }
+    const entry = aggregation.get(key)!;
+    entry.revenue += Number(submission.totalPrice || 0);
+    entry.users += 1;
+    if (submission.partnerId) {
+      entry.partners.add(submission.partnerId);
+    }
+  });
+
+  return Array.from(aggregation.entries())
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([iso, value]) => ({
+      date: toDisplayDate(iso),
+      partners: value.partners.size,
+      users: value.users,
+      revenue: value.revenue,
+    }));
+}
+
+function buildRevenueByPartnerDataset(
+  partners: AdminPartnerSummary[] | undefined
+): PieDataPoint[] {
+  if (!Array.isArray(partners)) {
+    return [];
+  }
+
+  return partners
+    .map((partner) => {
+      const revenue = Number(partner.metrics?.revenue ?? 0);
+      return {
+        name: partner.id,
+        value: revenue,
+        revenue,
+      };
+    })
+    .filter((item) => item.value > 0)
+    .sort((a, b) => b.value - a.value);
+}
+
+function buildRecentActivityItems(submissions: Submission[]): RecentActivityItem[] {
+  if (!Array.isArray(submissions) || submissions.length === 0) {
+    return [];
+  }
+
+  return submissions.slice(0, 6).map((submission) => {
+    const email = submission.email || "Guest";
+    const ticket = submission.ticket || submission.Categories || "Submission";
+    const description = submission.partnerName
+      ? `${submission.partnerName} • ${ticket}`
+      : ticket;
+    return {
+      type: submission.visited ? "submission" : "system",
+      title: submission.visited ? "Visit confirmed" : "New submission received",
+      description: `${email} · ${description}`,
+      timestamp: submission.createdAt || new Date().toISOString(),
+    };
+  });
+}
 
 interface AdminMetrics {
   totalPartners: number;
@@ -168,15 +238,11 @@ interface OverviewData {
 }
 
 interface AnalyticsData {
-  totals?: {
-    activePartners?: number;
-    totalUsers?: number;
-    revenue?: number;
-    totalRedemptions?: number;
-  };
-  recentActivity?: RecentActivityItem[];
-  partnerGrowth?: ChartDataPoint[];
-  revenueByPartner?: PieDataPoint[];
+  totals?: Record<string, number>;
+  revenueTrend?: Array<{ date?: string; value?: number }>;
+  latestSubmissions?: SubmissionRecord[];
+  partners?: AdminPartnerSummary[];
+  generatedAt?: string;
 }
 
 export default function AdminDashboardLight() {
@@ -197,7 +263,7 @@ export default function AdminDashboardLight() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
-  const [activeView, setActiveView] = useState('overview');
+  const [activeView, setActiveView] = useState("overview");
   const [metrics, setMetrics] = useState<AdminMetrics>({
     totalPartners: 0,
     totalUsers: 0,
@@ -207,6 +273,7 @@ export default function AdminDashboardLight() {
     partnerGrowth: [],
     revenueByPartner: [],
   });
+  const [loadingSubmissions, setLoadingSubmissions] = useState(false);
 
   // Formatters - same as original AdminDashboard
   const currencyFormatter = useMemo(
@@ -240,36 +307,15 @@ export default function AdminDashboardLight() {
     }
   }, [isAdmin, navigate]);
 
-  // Handle view changes based on URL
-  useEffect(() => {
-    const path = location.pathname.split("/").pop();
-    if (path && path !== "admin") {
-      const view = path === "dashboard" ? "overview" : path;
-      setActiveView(view);
-      
-      // Fetch submissions when navigating to the submissions view
-      if (view === "submissions" && !metrics.submissions) {
-        fetchAllSubmissions();
-      }
+  const loadSubmissions = useCallback(async (): Promise<Submission[]> => {
+    if (!isAdmin || !token) {
+      return [];
     }
-  }, [location.pathname, metrics.submissions]);
 
-  // Fetch data on mount
-  useEffect(() => {
-    fetchAdminData();
-    // Notifications are handled by the NotificationContext
-  }, []);
-
-  const fetchAdminData = async () => {
-    if (!isAdmin || !token) return;
-    
     try {
-      setLoading(true);
       const adminSecret = import.meta.env.VITE_ADMIN_SECRET || "zabava";
-
-      // Fetch overview data - following original pattern
-      const overviewResponse = await fetch(
-        buildApiUrl("/api/admin/overview"),
+      const response = await fetch(
+        buildApiUrl("/api/admin/analytics", { mode: "submissions", limit: 500 }),
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -278,54 +324,132 @@ export default function AdminDashboardLight() {
         }
       );
 
-      // Fetch analytics data - following original pattern
-      const analyticsResponse = await fetch(
-        buildApiUrl("/api/admin/analytics", { mode: "metrics" }),
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "x-admin-secret": adminSecret,
-          },
-        }
-      );
-
-      if (overviewResponse.ok) {
-        const overviewData: OverviewData = await overviewResponse.json();
-        let analyticsData: AnalyticsData = {};
-
-        if (analyticsResponse.ok) {
-          analyticsData = await analyticsResponse.json();
-        }
-
-        // Process and set metrics combining both responses
-        setMetrics({
-          totalPartners:
-            overviewData.totals?.activePartners ||
-            analyticsData.totals?.activePartners ||
-            0,
-          totalUsers:
-            analyticsData.totals?.totalUsers || overviewData.totals?.users || 0,
-          totalRevenue:
-            overviewData.totals?.totalRevenue ||
-            analyticsData.totals?.revenue ||
-            0,
-          totalRedemptions:
-            analyticsData.totals?.totalRedemptions ||
-            overviewData.totals?.redemptions ||
-            0,
-          recentActivity:
-            analyticsData.recentActivity || overviewData.recentActivity || [],
-          partnerGrowth: analyticsData.partnerGrowth || generateMockChartData(),
-          revenueByPartner:
-            analyticsData.revenueByPartner || generateMockPieData(),
-        });
+      if (!response.ok) {
+        throw new Error(`Submissions fetch failed: ${response.status}`);
       }
+
+      const payload: SubmissionSearchResponse = await response.json();
+      const items = Array.isArray(payload.items) ? payload.items : [];
+      return items.map((item) => ({
+        ...item,
+        partnerId:
+          (item as Submission).partnerId ||
+          (item as SubmissionRecord & { partnerId?: string }).partnerId ||
+          "",
+      }));
+    } catch (error) {
+      console.error("Failed to fetch submissions dataset", error);
+      return [];
+    }
+  }, [isAdmin, token]);
+
+  const fetchAdminData = useCallback(async () => {
+    if (!isAdmin || !token) {
+      return;
+    }
+
+    setLoading(true);
+    setLoadingSubmissions(true);
+
+    try {
+      const adminSecret = import.meta.env.VITE_ADMIN_SECRET || "zabava";
+      const headers = {
+        Authorization: `Bearer ${token}`,
+        "x-admin-secret": adminSecret,
+      } as const;
+
+      const [overviewResponse, analyticsResponse, submissionsList] =
+        await Promise.all([
+          fetch(buildApiUrl("/api/admin/overview"), { headers }),
+          fetch(buildApiUrl("/api/admin/analytics", { mode: "metrics" }), {
+            headers,
+          }),
+          loadSubmissions(),
+        ]);
+
+      const overviewData: OverviewData = overviewResponse.ok
+        ? await overviewResponse.json()
+        : {};
+      const analyticsData: AnalyticsData = analyticsResponse.ok
+        ? await analyticsResponse.json()
+        : {};
+
+      const latestSubmissions = Array.isArray(analyticsData.latestSubmissions)
+        ? analyticsData.latestSubmissions.map((item) => ({
+            ...item,
+            partnerId:
+              (item as Submission).partnerId ||
+              (item as SubmissionRecord & { partnerId?: string }).partnerId ||
+              "",
+          }))
+        : [];
+
+      const activitySource =
+        latestSubmissions.length > 0 ? latestSubmissions : submissionsList;
+
+      setMetrics({
+        totalPartners:
+          overviewData.totals?.activePartners ??
+          analyticsData.totals?.activePartners ??
+          0,
+        totalUsers:
+          analyticsData.totals?.count ??
+          analyticsData.totals?.totalUsers ??
+          overviewData.totals?.users ??
+          0,
+        totalRevenue:
+          overviewData.totals?.totalRevenue ??
+          analyticsData.totals?.revenue ??
+          0,
+        totalRedemptions:
+          analyticsData.totals?.bonusRedemptions ??
+          analyticsData.totals?.totalRedemptions ??
+          overviewData.totals?.redemptions ??
+          0,
+        recentActivity: buildRecentActivityItems(activitySource),
+        partnerGrowth: buildPartnerGrowthDataset(submissionsList),
+        revenueByPartner: buildRevenueByPartnerDataset(analyticsData.partners),
+        submissions: submissionsList,
+      });
     } catch (error) {
       console.error("Failed to fetch admin data:", error);
     } finally {
       setLoading(false);
+      setLoadingSubmissions(false);
     }
-  };
+  }, [isAdmin, loadSubmissions, token]);
+
+  const fetchAllSubmissions = useCallback(async () => {
+    if (!isAdmin || !token) {
+      return;
+    }
+    setLoadingSubmissions(true);
+    try {
+      const submissionsList = await loadSubmissions();
+      setMetrics((prev) => ({ ...prev, submissions: submissionsList }));
+    } finally {
+      setLoadingSubmissions(false);
+    }
+  }, [isAdmin, loadSubmissions, token]);
+
+  useEffect(() => {
+    void fetchAdminData();
+    // Notifications are handled by the NotificationContext
+  }, [fetchAdminData]);
+
+  useEffect(() => {
+    const path = location.pathname.split("/").pop();
+    const view =
+      path && path !== "admin" ? (path === "dashboard" ? "overview" : path) : "overview";
+    setActiveView(view);
+
+    if (
+      view === "submissions" &&
+      (!metrics.submissions || metrics.submissions.length === 0)
+    ) {
+      void fetchAllSubmissions();
+    }
+  }, [fetchAllSubmissions, location.pathname, metrics.submissions]);
 
   // Trigger manual notification check (useful for testing)
   const triggerTestNotification = () => {
@@ -341,121 +465,11 @@ export default function AdminDashboardLight() {
     setRefreshing(true);
 
     try {
-      await Promise.all([
-        fetchAdminData(),
-        fetchNotifications(),
-        activeView === "submissions" && fetchAllSubmissions(),
-      ]);
-      // Also refresh notifications
-      await fetchNotifications();
+      await Promise.all([fetchAdminData(), fetchNotifications()]);
     } catch (error) {
       console.error("Refresh failed:", error);
     } finally {
       setRefreshing(false);
-    }
-  };
-
-  const fetchAllSubmissions = async () => {
-    if (!isAdmin || !token) return;
-    
-    try {
-      setLoading(true);
-      const adminSecret = import.meta.env.VITE_ADMIN_SECRET || "zabava";
-
-      const partnersResponse = await fetch(
-        buildApiUrl("/api/admin/partners"),
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "x-admin-secret": adminSecret,
-          },
-        }
-      );
-
-      if (!partnersResponse.ok) {
-        console.error("Failed to fetch partners:", partnersResponse.status);
-        setMetrics((prev) => ({ ...prev, submissions: [] }));
-        return;
-      }
-
-      const partnersData = await partnersResponse.json();
-      const partners = partnersData.partners || partnersData.items || [];
-
-      const fetchSubmissionsForPartner = async (partner: any) => {
-        const partnerId = partner.partnerId || partner.id;
-        const headers = {
-          Authorization: `Bearer ${token}`,
-          "x-admin-secret": adminSecret,
-        };
-
-        // Try admin endpoint first
-        const response = await fetch(
-          `${API_BASE_URL}/api/admin/partners/${partnerId}`,
-          { headers }
-        );
-        if (response.ok) {
-          const data = await response.json();
-          const submissions =
-            data.submissions ||
-            data.items ||
-            data.data ||
-            data.partner?.submissions ||
-            [];
-          if (Array.isArray(submissions) && submissions.length > 0) {
-            return submissions.map((s: any) => ({
-              ...s,
-              partnerId,
-              partnerName: partner.name || partnerId,
-            }));
-          }
-        }
-
-        // Fallback to regular partner endpoint
-        const fallbackResponse = await fetch(
-          `${API_BASE_URL}/api/partner/${partnerId}/submissions`,
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
-        if (fallbackResponse.ok) {
-          const fallbackData = await fallbackResponse.json();
-          const submissions =
-            fallbackData.submissions ||
-            fallbackData.items ||
-            fallbackData.data ||
-            [];
-          if (Array.isArray(submissions) && submissions.length > 0) {
-            return submissions.map((s: any) => ({
-              ...s,
-              partnerId,
-              partnerName: partner.name || partnerId,
-            }));
-          }
-        }
-        return []; // Return empty array if no submissions found or error
-      };
-
-      const submissionPromises = partners.map(fetchSubmissionsForPartner);
-      const results = await Promise.allSettled(submissionPromises);
-
-      const allSubmissions = results.flatMap((result) => {
-        if (result.status === "fulfilled" && result.value) {
-          return result.value;
-        }
-        if (result.status === "rejected") {
-          console.error(
-            "Failed to fetch submissions for a partner:",
-            result.reason
-          );
-        }
-        return [];
-      });
-
-      setMetrics((prev) => ({ ...prev, submissions: allSubmissions }));
-    } catch (error) {
-      console.error("Failed to fetch all submissions:", error);
-      // Set empty submissions on error
-      setMetrics((prev) => ({ ...prev, submissions: [] }));
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -464,30 +478,6 @@ export default function AdminDashboardLight() {
   const handleLogout = () => {
     logout();
     navigate("/admin/login");
-  };
-
-  // Mock data generators for charts
-  const generateMockChartData = () => {
-    return [...Array(7)].map((_, i) => {
-      const date = new Date();
-      date.setDate(date.getDate() - (6 - i));
-      return {
-        date: format(date, "MMM dd"),
-        partners: Math.floor(Math.random() * 5) + 10,
-        users: Math.floor(Math.random() * 50) + 100,
-        revenue: Math.floor(Math.random() * 10000) + 5000,
-      };
-    });
-  };
-
-  const generateMockPieData = () => {
-    return [
-      { name: "Partner A", value: 35, revenue: 45000 },
-      { name: "Partner B", value: 25, revenue: 32000 },
-      { name: "Partner C", value: 20, revenue: 25000 },
-      { name: "Partner D", value: 15, revenue: 18000 },
-      { name: "Others", value: 5, revenue: 8000 },
-    ];
   };
 
 
@@ -723,7 +713,7 @@ export default function AdminDashboardLight() {
               element={
                 <AdminSubmissions
                   metrics={metrics}
-                  loading={loading}
+                  loading={loadingSubmissions}
                   onRefresh={fetchAllSubmissions}
                 />
               }
@@ -743,8 +733,24 @@ interface AdminOverviewProps {
   formatCurrency: (value: number) => string;
 }
 
-const AdminOverview = ({ metrics, formatNumber, formatCurrency }: AdminOverviewProps) => (
-  <div className="space-y-6">
+const AdminOverview = ({ metrics, formatNumber, formatCurrency }: AdminOverviewProps) => {
+  const getActivityVisuals = (type: RecentActivityItem["type"]) => {
+    switch (type) {
+      case "partner":
+        return { Icon: UserPlus, container: "bg-blue-100", icon: "text-blue-600" };
+      case "user":
+        return { Icon: Users, container: "bg-green-100", icon: "text-green-600" };
+      case "redemption":
+        return { Icon: Gift, container: "bg-purple-100", icon: "text-purple-600" };
+      case "submission":
+        return { Icon: FileText, container: "bg-yellow-100", icon: "text-yellow-600" };
+      default:
+        return { Icon: Bell, container: "bg-gray-100", icon: "text-gray-600" };
+    }
+  };
+
+  return (
+    <div className="space-y-6">
     {/* Metrics Grid */}
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
       <Card>
@@ -841,35 +847,41 @@ const AdminOverview = ({ metrics, formatNumber, formatCurrency }: AdminOverviewP
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <ResponsiveContainer width="100%" height={300}>
-            <LineChart data={metrics.partnerGrowth}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-              <XAxis dataKey="date" stroke="#94a3b8" fontSize={12} />
-              <YAxis stroke="#94a3b8" fontSize={12} />
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: "white",
-                  border: "1px solid #e2e8f0",
-                  borderRadius: "8px",
-                }}
-              />
-              <Legend />
-              <Line
-                type="monotone"
-                dataKey="revenue"
-                stroke="#3b82f6"
-                strokeWidth={2}
-                name="Revenue"
-              />
-              <Line
-                type="monotone"
-                dataKey="users"
-                stroke="#10b981"
-                strokeWidth={2}
-                name="Users"
-              />
-            </LineChart>
-          </ResponsiveContainer>
+          {metrics.partnerGrowth.length ? (
+            <ResponsiveContainer width="100%" height={300}>
+              <LineChart data={metrics.partnerGrowth}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                <XAxis dataKey="date" stroke="#94a3b8" fontSize={12} />
+                <YAxis stroke="#94a3b8" fontSize={12} />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: "white",
+                    border: "1px solid #e2e8f0",
+                    borderRadius: "8px",
+                  }}
+                />
+                <Legend />
+                <Line
+                  type="monotone"
+                  dataKey="revenue"
+                  stroke="#3b82f6"
+                  strokeWidth={2}
+                  name="Revenue"
+                />
+                <Line
+                  type="monotone"
+                  dataKey="users"
+                  stroke="#10b981"
+                  strokeWidth={2}
+                  name="Submissions"
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="flex h-[300px] items-center justify-center text-sm text-gray-500">
+              No submissions available for the selected period.
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -879,49 +891,59 @@ const AdminOverview = ({ metrics, formatNumber, formatCurrency }: AdminOverviewP
           <CardDescription>By revenue contribution</CardDescription>
         </CardHeader>
         <CardContent>
-          <ResponsiveContainer width="100%" height={300}>
-            <PieChart>
-              <Pie
-                data={metrics.revenueByPartner}
-                cx="50%"
-                cy="50%"
-                innerRadius={60}
-                outerRadius={100}
-                paddingAngle={5}
-                dataKey="value"
-              >
-                {metrics.revenueByPartner.map((entry: PieDataPoint, index: number) => (
-                  <Cell
-                    key={`cell-${index}`}
-                    fill={CHART_COLORS[index % CHART_COLORS.length]}
-                  />
-                ))}
-              </Pie>
-              <Tooltip />
-            </PieChart>
-          </ResponsiveContainer>
-          <div className="mt-4 space-y-2">
-            {metrics.revenueByPartner.slice(0, 4).map((item: PieDataPoint, index: number) => (
-              <div
-                key={item.name}
-                className="flex items-center justify-between"
-              >
-                <div className="flex items-center gap-2">
-                  <div
-                    className="w-3 h-3 rounded-full"
-                    style={{
-                      backgroundColor:
-                        CHART_COLORS[index % CHART_COLORS.length],
-                    }}
-                  />
-                  <span className="text-sm text-gray-600">{item.name}</span>
-                </div>
-                <span className="text-sm font-medium">
-                  {formatCurrency(item.revenue)}
-                </span>
+          {metrics.revenueByPartner.length ? (
+            <>
+              <ResponsiveContainer width="100%" height={300}>
+                <PieChart>
+                  <Pie
+                    data={metrics.revenueByPartner}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={60}
+                    outerRadius={100}
+                    paddingAngle={5}
+                    dataKey="value"
+                  >
+                    {metrics.revenueByPartner.map((entry: PieDataPoint, index: number) => (
+                      <Cell
+                        key={`cell-${index}`}
+                        fill={CHART_COLORS[index % CHART_COLORS.length]}
+                      />
+                    ))}
+                  </Pie>
+                  <Tooltip />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="mt-4 space-y-2">
+                {metrics.revenueByPartner
+                  .slice(0, 4)
+                  .map((item: PieDataPoint, index: number) => (
+                    <div
+                      key={item.name}
+                      className="flex items-center justify-between"
+                    >
+                      <div className="flex items-center gap-2">
+                        <div
+                          className="w-3 h-3 rounded-full"
+                          style={{
+                            backgroundColor:
+                              CHART_COLORS[index % CHART_COLORS.length],
+                          }}
+                        />
+                        <span className="text-sm text-gray-600">{item.name}</span>
+                      </div>
+                      <span className="text-sm font-medium">
+                        {formatCurrency(item.revenue)}
+                      </span>
+                    </div>
+                  ))}
               </div>
-            ))}
-          </div>
+            </>
+          ) : (
+            <div className="flex h-[300px] items-center justify-center text-sm text-gray-500">
+              Revenue data will appear once partners start reporting submissions.
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>
@@ -942,59 +964,55 @@ const AdminOverview = ({ metrics, formatNumber, formatCurrency }: AdminOverviewP
       </CardHeader>
       <CardContent>
         <div className="space-y-4">
-          <div className="flex items-center justify-between py-3 border-b">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center">
-                <UserPlus className="h-5 w-5 text-blue-600" />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-gray-900">
-                  New partner registered
-                </p>
-                <p className="text-xs text-gray-500">
-                  Adventure Park joined the platform
-                </p>
-              </div>
+          {metrics.recentActivity.length ? (
+            metrics.recentActivity.map((activity, index) => {
+              const visuals = getActivityVisuals(activity.type);
+              const Icon = visuals.Icon;
+              return (
+                <div
+                  key={`${activity.title}-${activity.timestamp}-${index}`}
+                  className={cn(
+                    "flex items-center justify-between py-3",
+                    index < metrics.recentActivity.length - 1 && "border-b"
+                  )}
+                >
+                  <div className="flex items-center gap-3">
+                    <div
+                      className={cn(
+                        "w-10 h-10 rounded-full flex items-center justify-center",
+                        visuals.container
+                      )}
+                    >
+                      <Icon className={cn("h-5 w-5", visuals.icon)} />
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-gray-900">
+                        {activity.title}
+                      </p>
+                      {activity.description ? (
+                        <p className="text-xs text-gray-500">
+                          {activity.description}
+                        </p>
+                      ) : null}
+                    </div>
+                  </div>
+                  <span className="text-xs text-gray-500">
+                    {formatRelativeTime(activity.timestamp)}
+                  </span>
+                </div>
+              );
+            })
+          ) : (
+            <div className="py-6 text-center text-sm text-gray-500">
+              Activity will appear here once submissions start flowing in.
             </div>
-            <span className="text-xs text-gray-500">2 hours ago</span>
-          </div>
-          <div className="flex items-center justify-between py-3 border-b">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center">
-                <Gift className="h-5 w-5 text-green-600" />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-gray-900">
-                  Reward redeemed
-                </p>
-                <p className="text-xs text-gray-500">
-                  User claimed "Weekend Pass" reward
-                </p>
-              </div>
-            </div>
-            <span className="text-xs text-gray-500">4 hours ago</span>
-          </div>
-          <div className="flex items-center justify-between py-3">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-purple-100 flex items-center justify-center">
-                <FileText className="h-5 w-5 text-purple-600" />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-gray-900">
-                  New submission
-                </p>
-                <p className="text-xs text-gray-500">
-                  125 new bookings received today
-                </p>
-              </div>
-            </div>
-            <span className="text-xs text-gray-500">Today</span>
-          </div>
+          )}
         </div>
       </CardContent>
     </Card>
   </div>
-);
+  );
+};
 
 interface AdminSubmissionsProps {
   metrics: AdminMetrics;
@@ -1033,6 +1051,7 @@ const AdminSubmissions = ({ metrics, loading, onRefresh }: AdminSubmissionsProps
         <SubmissionsTable
           submissions={metrics.submissions || []}
           isLoading={loading}
+          emptyState="No submissions have been recorded yet."
         />
       )}
     </CardContent>
