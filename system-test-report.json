@@ -1,0 +1,214 @@
+{
+  "timestamp": "2025-09-22T17:48:38.531Z",
+  "summary": {
+    "totalTests": 23,
+    "passed": 12,
+    "failed": 11,
+    "successRate": 52
+  },
+  "results": {
+    "auth": {
+      "passed": 0,
+      "failed": 3,
+      "tests": [
+        {
+          "name": "Signup",
+          "status": "failed",
+          "success": false,
+          "message": "Status 400",
+          "details": "ValidationError"
+        },
+        {
+          "name": "Login",
+          "status": "failed",
+          "success": false,
+          "message": "Status 401",
+          "details": "Invalid credentials"
+        },
+        {
+          "name": "Get Profile",
+          "status": "failed",
+          "success": false,
+          "message": "Status 401",
+          "details": "Invalid token"
+        }
+      ]
+    },
+    "admin": {
+      "passed": 0,
+      "failed": 5,
+      "tests": [
+        {
+          "name": "Admin Overview",
+          "status": "failed",
+          "success": false,
+          "message": "Status 401",
+          "details": "Invalid admin secret"
+        },
+        {
+          "name": "List Partners",
+          "status": "failed",
+          "success": false,
+          "message": "Status 401",
+          "details": "Unauthorized"
+        },
+        {
+          "name": "Analytics",
+          "status": "failed",
+          "success": false,
+          "message": "Status 401",
+          "details": "Unauthorized"
+        },
+        {
+          "name": "List Rewards",
+          "status": "failed",
+          "success": false,
+          "message": "Status 401",
+          "details": "Unauthorized"
+        },
+        {
+          "name": "Manage Invites",
+          "status": "failed",
+          "success": false,
+          "message": "Status 401",
+          "details": "Unauthorized"
+        }
+      ]
+    },
+    "partner": {
+      "passed": 1,
+      "failed": 2,
+      "tests": [
+        {
+          "name": "Get Partner Info",
+          "status": "failed",
+          "success": false,
+          "message": "Status 401",
+          "details": "Invalid request"
+        },
+        {
+          "name": "Record Visit",
+          "status": "failed",
+          "success": false,
+          "message": "Status 400",
+          "details": "ValidationError"
+        },
+        {
+          "name": "Mark User as Visited",
+          "status": "passed",
+          "success": true,
+          "message": "User marked as visited"
+        }
+      ]
+    },
+    "bonus": {
+      "passed": 3,
+      "failed": 0,
+      "tests": [
+        {
+          "name": "Get User Points (Original)",
+          "status": "passed",
+          "success": true,
+          "message": "User has 10 points",
+          "points": 10,
+          "visits": 1
+        },
+        {
+          "name": "Get User Points (Fixed)",
+          "status": "passed",
+          "success": true,
+          "message": "User has 0 points",
+          "points": 0,
+          "visits": 3,
+          "partners": 3
+        },
+        {
+          "name": "Debug User Data",
+          "status": "passed",
+          "success": true,
+          "message": "Debug data retrieved",
+          "hasQrRecords": true,
+          "partnerCount": 0
+        }
+      ]
+    },
+    "frontend": {
+      "passed": 6,
+      "failed": 0,
+      "tests": [
+        {
+          "name": "Home Page",
+          "status": "passed",
+          "success": true,
+          "message": "Page loads successfully",
+          "title": "Zabava"
+        },
+        {
+          "name": "Bonus Page",
+          "status": "passed",
+          "success": true,
+          "message": "Page loads successfully",
+          "title": "Zabava"
+        },
+        {
+          "name": "Partner Dashboard",
+          "status": "passed",
+          "success": true,
+          "message": "Page loads successfully",
+          "title": "Zabava"
+        },
+        {
+          "name": "Admin Dashboard",
+          "status": "passed",
+          "success": true,
+          "message": "Page loads successfully",
+          "title": "Zabava"
+        },
+        {
+          "name": "Login Page",
+          "status": "passed",
+          "success": true,
+          "message": "Page loads successfully",
+          "title": "Zabava"
+        },
+        {
+          "name": "Signup Page",
+          "status": "passed",
+          "success": true,
+          "message": "Page loads successfully",
+          "title": "Zabava"
+        }
+      ]
+    },
+    "integration": {
+      "passed": 2,
+      "failed": 1,
+      "tests": [
+        {
+          "name": "Complete Registration Flow",
+          "status": "failed",
+          "success": false,
+          "message": "Points not updated correctly",
+          "details": "Expected 50, got 10"
+        },
+        {
+          "name": "CORS Configuration",
+          "status": "passed",
+          "success": true,
+          "message": "CORS configured correctly: *"
+        },
+        {
+          "name": "API Health Check",
+          "status": "passed",
+          "success": true,
+          "message": "API is healthy"
+        }
+      ]
+    }
+  },
+  "criticalSystems": {
+    "bonusSystem": true,
+    "cors": true,
+    "registrationFlow": false
+  }
+}

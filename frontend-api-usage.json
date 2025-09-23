@@ -1,0 +1,226 @@
+{
+  "timestamp": "2025-09-22T17:32:59.775Z",
+  "totalEndpoints": 14,
+  "endpoints": [
+    {
+      "path": "/api/admin/analytics",
+      "usageCount": 5,
+      "usages": [
+        {
+          "file": "pages/admin/AdminDashboard.tsx",
+          "line": 161
+        },
+        {
+          "file": "pages/admin/AdminDashboard.tsx",
+          "line": 200
+        },
+        {
+          "file": "pages/admin/AdminDashboard.tsx",
+          "line": 319
+        },
+        {
+          "file": "pages/admin/AdminDashboard.tsx",
+          "line": 368
+        },
+        {
+          "file": "pages/admin/InviteManager.tsx",
+          "line": 286
+        }
+      ]
+    },
+    {
+      "path": "/api/admin/invites",
+      "usageCount": 3,
+      "usages": [
+        {
+          "file": "pages/admin/InviteManager.tsx",
+          "line": 377
+        },
+        {
+          "file": "pages/admin/InviteManager.tsx",
+          "line": 377
+        },
+        {
+          "file": "pages/admin/InviteManager.tsx",
+          "line": 245
+        }
+      ]
+    },
+    {
+      "path": "/api/admin/overview",
+      "usageCount": 2,
+      "usages": [
+        {
+          "file": "pages/admin/AdminDashboard.tsx",
+          "line": 274
+        },
+        {
+          "file": "pages/admin/AdminDashboard.tsx",
+          "line": 274
+        }
+      ]
+    },
+    {
+      "path": "/api/admin/partners",
+      "usageCount": 4,
+      "usages": [
+        {
+          "file": "pages/admin/AdminDashboard.tsx",
+          "line": 244
+        },
+        {
+          "file": "pages/admin/AdminDashboard.tsx",
+          "line": 244
+        },
+        {
+          "file": "pages/admin/RewardsManagement.tsx",
+          "line": 117
+        },
+        {
+          "file": "pages/admin/RewardsManagement.tsx",
+          "line": 117
+        }
+      ]
+    },
+    {
+      "path": "/api/admin/partners/:variable",
+      "usageCount": 2,
+      "usages": [
+        {
+          "file": "pages/admin/AdminDashboard.tsx",
+          "line": 738
+        },
+        {
+          "file": "pages/admin/AdminDashboard.tsx",
+          "line": 738
+        }
+      ]
+    },
+    {
+      "path": "/api/admin/rewards",
+      "usageCount": 2,
+      "usages": [
+        {
+          "file": "pages/admin/RewardsManagement.tsx",
+          "line": 94
+        },
+        {
+          "file": "pages/admin/RewardsManagement.tsx",
+          "line": 94
+        }
+      ]
+    },
+    {
+      "path": "/api/admin/rewards/:variable",
+      "usageCount": 2,
+      "usages": [
+        {
+          "file": "pages/admin/RewardsManagement.tsx",
+          "line": 214
+        },
+        {
+          "file": "pages/admin/RewardsManagement.tsx",
+          "line": 214
+        }
+      ]
+    },
+    {
+      "path": "/api/auth/login",
+      "usageCount": 2,
+      "usages": [
+        {
+          "file": "context/AuthContext.tsx",
+          "line": 218
+        },
+        {
+          "file": "context/AuthContext.tsx",
+          "line": 218
+        }
+      ]
+    },
+    {
+      "path": "/api/auth/profile",
+      "usageCount": 2,
+      "usages": [
+        {
+          "file": "context/AuthContext.tsx",
+          "line": 182
+        },
+        {
+          "file": "context/AuthContext.tsx",
+          "line": 182
+        }
+      ]
+    },
+    {
+      "path": "/api/auth/signup",
+      "usageCount": 2,
+      "usages": [
+        {
+          "file": "context/AuthContext.tsx",
+          "line": 247
+        },
+        {
+          "file": "context/AuthContext.tsx",
+          "line": 247
+        }
+      ]
+    },
+    {
+      "path": "/api/bonus/redeem-reward",
+      "usageCount": 2,
+      "usages": [
+        {
+          "file": "pages/BonusPage.tsx",
+          "line": 127
+        },
+        {
+          "file": "pages/BonusPage.tsx",
+          "line": 127
+        }
+      ]
+    },
+    {
+      "path": "/api/bonus/user-points-fixed",
+      "usageCount": 2,
+      "usages": [
+        {
+          "file": "pages/BonusPage.tsx",
+          "line": 101
+        },
+        {
+          "file": "pages/BonusPage.tsx",
+          "line": 101
+        }
+      ]
+    },
+    {
+      "path": "/api/partner/:variable",
+      "usageCount": 2,
+      "usages": [
+        {
+          "file": "hooks/usePartnerData.ts",
+          "line": 47
+        },
+        {
+          "file": "hooks/usePartnerData.ts",
+          "line": 47
+        }
+      ]
+    },
+    {
+      "path": "/api/partner/visit",
+      "usageCount": 2,
+      "usages": [
+        {
+          "file": "pages/PartnerDashboard.tsx",
+          "line": 370
+        },
+        {
+          "file": "pages/PartnerDashboard.tsx",
+          "line": 370
+        }
+      ]
+    }
+  ]
+}
