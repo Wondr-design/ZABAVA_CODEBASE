@@ -3,14 +3,17 @@
 /**
  * API Endpoint Test Script
  * Tests all Zabava server endpoints and checks CORS configuration
+ * Loads API targets from environment variables (requires `.env` or predefined env vars)
+ * Run with `node -r dotenv/config test-api-endpoints.js` or export values before execution
+ * Recognized variables: VITE_API_BASE_URL/API_BASE_URL and VITE_FRONTEND_ORIGIN/FRONTEND_ORIGIN
  */
 
 const https = require('https');
 const http = require('http');
 
 // Configuration
-const API_BASE_URL = 'https://zabava-server.vercel.app';
-const FRONTEND_ORIGIN = 'https://zabava-lasermax.vercel.app';
+const API_BASE_URL = process.env.VITE_API_BASE_URL || process.env.API_BASE_URL || 'https://zabava-server.vercel.app';
+const FRONTEND_ORIGIN = process.env.VITE_FRONTEND_ORIGIN || process.env.FRONTEND_ORIGIN || 'https://zabava-lasermax.vercel.app';
 const TEST_EMAIL = 'wondrcrown@gmail.com';
 const TEST_PARTNER_ID = 'OSM001';
 
