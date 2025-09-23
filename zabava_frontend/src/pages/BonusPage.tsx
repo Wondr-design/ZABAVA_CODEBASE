@@ -1,5 +1,4 @@
-import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -7,24 +6,20 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Progress } from '@/components/ui/progress';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
-import { 
-  Trophy, 
-  Gift, 
-  MapPin, 
-  Calendar, 
-  TrendingUp, 
-  AlertCircle, 
+import {
+  Trophy,
+  Gift,
+  MapPin,
+  Calendar,
+  TrendingUp,
+  AlertCircle,
   Check,
-  X,
   Loader2,
   Star,
   Ticket,
-  Clock,
-  ArrowRight
 } from 'lucide-react';
 import { getApiConfig } from '@/lib/config';
 import { format } from 'date-fns';
@@ -41,6 +36,13 @@ interface UserPoints {
     pendingVisits: number;
     totalPartners: number;
     totalRedemptions: number;
+    visitsByPartner: Array<{
+      partnerId: string;
+      partnerName: string;
+      totalVisits: number;
+      pendingVisits: number;
+      totalPoints: number;
+    }>;
   };
   visits: Array<{
     partnerId: string;
@@ -78,7 +80,6 @@ interface UserPoints {
 }
 
 export default function BonusPage() {
-  const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
@@ -243,6 +244,9 @@ export default function BonusPage() {
     );
   }
 
+  const partnerStats = userData.statistics?.visitsByPartner || [];
+  const pointsHistory = userData.pointsHistory || [];
+
   return (
     <div className="container mx-auto px-4 py-8">
       {/* Header with Points Overview */}
@@ -301,6 +305,47 @@ export default function BonusPage() {
           </CardContent>
         </Card>
       </div>
+
+      {partnerStats.length > 0 && (
+        <Card className="mb-8">
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <MapPin className="h-5 w-5 text-primary" />
+              Points by Partner
+            </CardTitle>
+            <CardDescription>
+              Track how many confirmed points you have earned at each partner location.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {partnerStats.map((partner) => (
+                <div
+                  key={partner.partnerId}
+                  className="rounded-lg border bg-card p-4 shadow-sm"
+                >
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-muted-foreground">
+                        {partner.partnerName}
+                      </p>
+                      <p className="text-2xl font-semibold text-primary">
+                        {partner.totalPoints} pts
+                      </p>
+                    </div>
+                    <Badge variant="secondary">{partner.totalVisits} visits</Badge>
+                  </div>
+                  <Separator className="my-3" />
+                  <div className="space-y-1 text-xs text-muted-foreground">
+                    <p>Pending visits: {partner.pendingVisits}</p>
+                    <p>Partner code: {partner.partnerId.toUpperCase()}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Main Content Tabs */}
       <Tabs defaultValue="rewards" className="space-y-4">
@@ -425,33 +470,41 @@ export default function BonusPage() {
             </CardHeader>
             <CardContent>
               <ScrollArea className="h-[400px]">
-                <div className="space-y-4">
-                  {userData.pointsHistory.map((entry, index) => (
-                    <div key={index} className="flex items-center justify-between py-3 border-b last:border-0">
-                      <div className="flex items-center gap-3">
-                        {entry.type === 'earned' ? (
-                          <TrendingUp className="h-5 w-5 text-green-500" />
-                        ) : (
-                          <Gift className="h-5 w-5 text-blue-500" />
-                        )}
-                        <div>
-                          <p className="font-medium">
-                            {entry.type === 'earned' ? 'Points Earned' : 'Reward Redeemed'}
-                          </p>
-                          <p className="text-sm text-muted-foreground">
-                            {entry.rewardName || 'Partner visit'}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            {format(new Date(entry.timestamp), 'MMM dd, yyyy HH:mm')}
-                          </p>
+                {pointsHistory.length > 0 ? (
+                  <div className="space-y-4">
+                    {pointsHistory.map((entry, index) => (
+                      <div key={index} className="flex items-center justify-between py-3 border-b last:border-0">
+                        <div className="flex items-center gap-3">
+                          {entry.type === 'earned' ? (
+                            <TrendingUp className="h-5 w-5 text-green-500" />
+                          ) : (
+                            <Gift className="h-5 w-5 text-blue-500" />
+                          )}
+                          <div>
+                            <p className="font-medium">
+                              {entry.type === 'earned' ? 'Points Earned' : 'Reward Redeemed'}
+                            </p>
+                            <p className="text-sm text-muted-foreground">
+                              {entry.rewardName || 'Partner visit'}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {format(new Date(entry.timestamp), 'MMM dd, yyyy HH:mm')}
+                            </p>
+                          </div>
+                        </div>
+                        <div className={`font-bold ${entry.type === 'earned' ? 'text-green-500' : 'text-red-500'}`}>
+                          {entry.type === 'earned' ? '+' : '-'}{entry.points} pts
                         </div>
                       </div>
-                      <div className={`font-bold ${entry.type === 'earned' ? 'text-green-500' : 'text-red-500'}`}>
-                        {entry.type === 'earned' ? '+' : '-'}{entry.points} pts
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="flex h-full min-h-[200px] items-center justify-center">
+                    <p className="text-sm text-muted-foreground">
+                      No points history found yet. Earn points by visiting partners or redeem rewards to see activity here.
+                    </p>
+                  </div>
+                )}
               </ScrollArea>
             </CardContent>
           </Card>
