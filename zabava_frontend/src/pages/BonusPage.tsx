@@ -24,6 +24,23 @@ import {
 import { getApiConfig } from '@/lib/config';
 import { format } from 'date-fns';
 
+const safeFormatDate = (value?: string | Date | null, dateFormat = 'MMM dd, yyyy') => {
+  if (!value) {
+    return 'Date unavailable';
+  }
+
+  const dateValue = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(dateValue.getTime())) {
+    return 'Date unavailable';
+  }
+
+  try {
+    return format(dateValue, dateFormat);
+  } catch (error) {
+    return 'Date unavailable';
+  }
+};
+
 interface UserPoints {
   user: {
     email: string;
@@ -572,7 +589,7 @@ export default function BonusPage() {
                         <div>
                           <p className="text-muted-foreground">Redeemed</p>
                           <p className="font-medium">
-                            {format(new Date(redemption.redeemedAt), 'MMM dd, yyyy')}
+                            {safeFormatDate(redemption.redeemedAt)}
                           </p>
                         </div>
                         <div>
@@ -582,7 +599,7 @@ export default function BonusPage() {
                         <div>
                           <p className="text-muted-foreground">Expires</p>
                           <p className="font-medium">
-                            {format(new Date(redemption.expiresAt), 'MMM dd, yyyy')}
+                            {safeFormatDate(redemption.expiresAt)}
                           </p>
                         </div>
                       </div>
@@ -697,7 +714,7 @@ export default function BonusPage() {
                   <strong>Remaining Balance:</strong> {redemptionSuccess.remainingPoints} pts
                 </p>
                 <p className="text-sm">
-                  <strong>Valid Until:</strong> {format(new Date(redemptionSuccess.expiresAt), 'MMMM dd, yyyy')}
+                  <strong>Valid Until:</strong> {safeFormatDate(redemptionSuccess.expiresAt, 'MMMM dd, yyyy')}
                 </p>
               </div>
 
