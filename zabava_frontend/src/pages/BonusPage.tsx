@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -20,9 +20,59 @@ import {
   Loader2,
   Star,
   Ticket,
+  Clock,
 } from 'lucide-react';
 import { getApiConfig } from '@/lib/config';
 import { format } from 'date-fns';
+
+
+interface PartnerVisitSummary {
+  partnerId: string;
+  partnerName: string;
+  totalVisits: number;
+  pendingVisits: number;
+  totalPoints: number;
+  pendingPoints?: number;
+}
+
+interface PointsHistoryEntry {
+  type: 'earned' | 'redemption' | 'pending';
+  points: number;
+  timestamp?: string;
+  rewardName?: string;
+  partnerId?: string;
+  partnerName?: string;
+  ticketType?: string;
+  status?: 'pending' | 'confirmed';
+}
+
+interface VisitRecord {
+  partnerId: string;
+  partnerName: string;
+  visitDate: string;
+  confirmedDate?: string | null;
+  pointsEarned: number;
+  status: 'visited' | 'pending';
+  ticketType: string;
+  numPeople?: number;
+  transport?: string;
+  busRental?: string;
+  cityCode?: string;
+  categories?: string;
+  age?: string;
+  totalPrice?: number;
+}
+
+interface RedemptionRecord {
+  id: string;
+  rewardName: string;
+  pointsSpent: number;
+  redeemedAt: string;
+  status: string;
+  expiresAt: string;
+  remainingPoints?: number;
+  code?: string;
+}
 
 const safeFormatDate = (value?: string | Date | null, dateFormat = 'MMM dd, yyyy') => {
   if (!value) {
@@ -41,6 +91,7 @@ const safeFormatDate = (value?: string | Date | null, dateFormat = 'MMM dd, yyyy
   }
 };
 
+
 interface UserPoints {
   user: {
     email: string;
@@ -53,37 +104,11 @@ interface UserPoints {
     pendingVisits: number;
     totalPartners: number;
     totalRedemptions: number;
-    visitsByPartner: Array<{
-      partnerId: string;
-      partnerName: string;
-      totalVisits: number;
-      pendingVisits: number;
-      totalPoints: number;
-    }>;
+    visitsByPartner: PartnerVisitSummary[];
   };
-  visits: Array<{
-    partnerId: string;
-    partnerName: string;
-    visitDate: string;
-    pointsEarned: number;
-    status: 'visited' | 'pending';
-    ticketType: string;
-  }>;
-  pointsHistory: Array<{
-    type: 'earned' | 'redemption';
-    points: number;
-    timestamp: string;
-    rewardName?: string;
-    partnerId?: string;
-  }>;
-  redemptions: Array<{
-    id: string;
-    rewardName: string;
-    pointsSpent: number;
-    redeemedAt: string;
-    status: string;
-    expiresAt: string;
-  }>;
+  visits: VisitRecord[];
+  pointsHistory: PointsHistoryEntry[];
+  redemptions: RedemptionRecord[];
   availableRewards: Array<{
     id: string;
     name: string;
@@ -205,6 +230,11 @@ export default function BonusPage() {
     }
   };
 
+  const normalizePoints = (value: unknown) => {
+    const numeric = typeof value === 'number' ? value : Number(value);
+    return Number.isFinite(numeric) ? numeric : 0;
+  };
+
   if (!userData) {
     return (
       <div className="container mx-auto px-4 py-8 max-w-2xl">
@@ -261,8 +291,267 @@ export default function BonusPage() {
     );
   }
 
-  const partnerStats = userData.statistics?.visitsByPartner || [];
-  const pointsHistory = userData.pointsHistory || [];
+  const safeFormatDate = (value: string | null | undefined, dateFormat: string) => {
+    if (!value) return 'Date unavailable';
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+      return 'Date unavailable';
+    }
+    return format(parsed, dateFormat);
+  };
+
+  const rawVisits = userData.visits || [];
+  const visits = useMemo(() => {
+    return rawVisits.map((visit) => {
+      const pointsEarned = normalizePoints(
+        (visit as VisitRecord).pointsEarned ?? (visit as any).estimatedPoints
+      );
+      const normalizedStatus = (visit.status || '').toLowerCase() === 'visited' ? 'visited' : 'pending';
+      const partnerId = visit.partnerId || (visit as any).partner_id || 'unknown-partner';
+      const fallbackVisitDate =
+        visit.visitDate ||
+        (visit as any).confirmedDate ||
+        (visit as any).preferredDateTime ||
+        (visit as any).createdAt ||
+        (visit as any).scannedAt ||
+        new Date().toISOString();
+
+      return {
+        ...visit,
+        partnerId,
+        partnerName:
+          visit.partnerName ||
+          (visit as any).attractionName ||
+          partnerId.toString().toUpperCase(),
+        pointsEarned,
+        status: normalizedStatus,
+        confirmedDate: visit.confirmedDate || (visit as any).visitedAt || null,
+        ticketType: visit.ticketType || (visit as any).ticket || 'Standard',
+        visitDate: fallbackVisitDate,
+      } as VisitRecord;
+    });
+  }, [rawVisits]);
+
+  const rawRedemptions = userData.redemptions || [];
+  const redemptions = useMemo(
+    () =>
+      rawRedemptions.map((redemption) => ({
+        ...redemption,
+        pointsSpent: normalizePoints(redemption.pointsSpent),
+      })),
+    [rawRedemptions]
+  );
+
+  const partnerStatsFromServer = userData.statistics?.visitsByPartner || [];
+
+  const derivedVisitData = useMemo(() => {
+    const partnerMap = new Map<string, PartnerVisitSummary>();
+    let confirmedPoints = 0;
+    let pendingPoints = 0;
+    let confirmedVisits = 0;
+    let pendingVisits = 0;
+
+    visits.forEach((visit) => {
+      const partnerId = visit.partnerId || visit.partnerName || 'unknown-partner';
+      const existing = partnerMap.get(partnerId) || {
+        partnerId,
+        partnerName: visit.partnerName || partnerId.toUpperCase(),
+        totalVisits: 0,
+        pendingVisits: 0,
+        totalPoints: 0,
+        pendingPoints: 0,
+      };
+
+      existing.totalVisits += 1;
+
+      if (visit.status === 'visited') {
+        confirmedVisits += 1;
+        const earned = normalizePoints(visit.pointsEarned);
+        confirmedPoints += earned;
+        existing.totalPoints += earned;
+      } else {
+        pendingVisits += 1;
+        const pending = normalizePoints(visit.pointsEarned);
+        pendingPoints += pending;
+        existing.pendingVisits += 1;
+        existing.pendingPoints = (existing.pendingPoints || 0) + pending;
+      }
+
+      partnerMap.set(partnerId, existing);
+    });
+
+    const derivedPartnerStats = Array.from(partnerMap.values()).sort((a, b) => b.totalPoints - a.totalPoints);
+
+    return {
+      derivedPartnerStats,
+      confirmedPoints,
+      pendingPoints,
+      confirmedVisits,
+      pendingVisits,
+      partnerCount: partnerMap.size,
+    };
+  }, [visits]);
+
+  const partnerStats: PartnerVisitSummary[] = useMemo(() => {
+    if (partnerStatsFromServer.length === 0) {
+      return derivedVisitData.derivedPartnerStats;
+    }
+
+    const derivedLookup = new Map(
+      derivedVisitData.derivedPartnerStats.map((summary) => [summary.partnerId, summary])
+    );
+
+    return partnerStatsFromServer.map((partner) => {
+      const partnerId = partner.partnerId || (partner as any).partner_id || 'unknown-partner';
+      const derived = derivedLookup.get(partnerId);
+      return {
+        partnerId,
+        partnerName: partner.partnerName || derived?.partnerName || partnerId.toUpperCase(),
+        totalVisits: Math.max(0, Math.round(normalizePoints(partner.totalVisits ?? derived?.totalVisits ?? 0))),
+        pendingVisits: Math.max(0, Math.round(normalizePoints(partner.pendingVisits ?? derived?.pendingVisits ?? 0))),
+        totalPoints: normalizePoints(partner.totalPoints ?? derived?.totalPoints ?? 0),
+        pendingPoints: normalizePoints(
+          (partner as any).pendingPoints ?? derived?.pendingPoints ?? 0
+        ),
+      };
+    });
+  }, [partnerStatsFromServer, derivedVisitData.derivedPartnerStats]);
+
+  const derivedRedemptionPoints = useMemo(
+    () => redemptions.reduce((sum, redemption) => sum + normalizePoints(redemption.pointsSpent), 0),
+    [redemptions]
+  );
+
+  const serverTotalPoints = normalizePoints(userData.user.totalPoints);
+  const serverAvailablePoints = normalizePoints(userData.user.availablePoints);
+  const serverTotalPartners = Math.max(0, Math.round(normalizePoints(userData.statistics.totalPartners)));
+  const serverTotalRedemptions = Math.max(0, Math.round(normalizePoints(userData.statistics.totalRedemptions)));
+  const serverTotalVisits = Math.max(0, Math.round(normalizePoints(userData.statistics.totalVisits)));
+  const serverPendingVisits = Math.max(0, Math.round(normalizePoints(userData.statistics.pendingVisits)));
+
+  const totalPointsEarned = serverTotalPoints > 0
+    ? serverTotalPoints
+    : derivedVisitData.confirmedPoints;
+
+  const availablePoints = serverAvailablePoints > 0
+    ? serverAvailablePoints
+    : Math.max(0, derivedVisitData.confirmedPoints - derivedRedemptionPoints);
+
+  const totalPartnersVisited = serverTotalPartners > 0
+    ? serverTotalPartners
+    : derivedVisitData.partnerCount;
+
+  const totalRedemptions = serverTotalRedemptions > 0
+    ? serverTotalRedemptions
+    : redemptions.length;
+
+  const totalVisits = serverTotalVisits > 0
+    ? serverTotalVisits
+    : derivedVisitData.confirmedVisits;
+
+  const pendingVisitCount = serverPendingVisits > 0
+    ? serverPendingVisits
+    : derivedVisitData.pendingVisits;
+
+  const pointsHistory = useMemo(() => {
+    const historyFromServer: PointsHistoryEntry[] = (userData.pointsHistory || []).map((entry) => {
+      const normalizedType: PointsHistoryEntry['type'] =
+        entry.type === 'redemption'
+          ? 'redemption'
+          : entry.type === 'pending'
+            ? 'pending'
+            : 'earned';
+      const statusValue = (entry.status || '').toString().toLowerCase();
+      const normalizedStatus =
+        ['pending', 'awaiting', 'in review', 'applied'].includes(statusValue)
+          ? 'pending'
+          : statusValue
+            ? 'confirmed'
+            : normalizedType === 'earned'
+              ? 'confirmed'
+              : undefined;
+
+      return {
+        ...entry,
+        type: normalizedType,
+        points: normalizePoints(entry.points),
+        status: normalizedStatus,
+      };
+    });
+
+    const fallbackHistory: PointsHistoryEntry[] = [
+      ...visits.map((visit) => {
+        const baseEntry = {
+          points: normalizePoints(visit.pointsEarned),
+          partnerId: visit.partnerId,
+          partnerName: visit.partnerName,
+          rewardName: visit.partnerName,
+          timestamp: visit.status === 'visited' ? visit.confirmedDate || visit.visitDate : visit.visitDate,
+          ticketType: visit.ticketType,
+        };
+
+        if (visit.status === 'visited') {
+          return {
+            ...baseEntry,
+            type: 'earned' as const,
+            status: 'confirmed' as const,
+          };
+        }
+
+        return {
+          ...baseEntry,
+          type: 'pending' as const,
+          status: 'pending' as const,
+        };
+      }),
+      ...redemptions.map((redemption) => {
+        const redemptionStatus = (redemption.status || '').toLowerCase();
+        const isPendingStatus = ['pending', 'applied'].includes(redemptionStatus);
+
+        return {
+          type: 'redemption' as const,
+          points: normalizePoints(redemption.pointsSpent),
+          rewardName: redemption.rewardName,
+          timestamp: redemption.redeemedAt,
+          status: isPendingStatus ? 'pending' : 'confirmed',
+        } satisfies PointsHistoryEntry;
+      }),
+    ];
+
+    if (historyFromServer.length === 0) {
+      return fallbackHistory.sort((a, b) => {
+        const aDate = new Date(a.timestamp || '').getTime();
+        const bDate = new Date(b.timestamp || '').getTime();
+        return Number.isNaN(bDate) ? -1 : Number.isNaN(aDate) ? 1 : bDate - aDate;
+      });
+    }
+
+    const existingKeys = new Set(
+      historyFromServer.map(
+        (entry) =>
+          `${entry.type}-${entry.status || ''}-${entry.points}-${entry.timestamp}-${entry.partnerId || entry.rewardName || ''}`
+      )
+    );
+
+    const mergedHistory = [...historyFromServer];
+
+    fallbackHistory.forEach((entry) => {
+      const key = `${entry.type}-${entry.status || ''}-${entry.points}-${entry.timestamp}-${entry.partnerId || entry.rewardName || ''}`;
+      if (!existingKeys.has(key)) {
+        mergedHistory.push(entry);
+      }
+    });
+
+    return mergedHistory.sort((a, b) => {
+      const aDate = new Date(a.timestamp || '').getTime();
+      const bDate = new Date(b.timestamp || '').getTime();
+      return Number.isNaN(bDate) ? -1 : Number.isNaN(aDate) ? 1 : bDate - aDate;
+    });
+  }, [userData.pointsHistory, visits, redemptions]);
+          
+  //const partnerStats = userData.statistics?.visitsByPartner || [];
+  //const pointsHistory = userData.pointsHistory || [];
+
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -280,9 +569,19 @@ export default function BonusPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-primary">
-              {userData.user.availablePoints}
+              {availablePoints}
             </div>
             <p className="text-xs text-muted-foreground">Ready to redeem</p>
+            {derivedVisitData.pendingPoints > 0 && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                {derivedVisitData.pendingPoints} pts awaiting partner confirmation
+              </p>
+            )}
+            {derivedVisitData.pendingPoints > 0 && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Total potential: {availablePoints + derivedVisitData.pendingPoints} pts
+              </p>
+            )}
           </CardContent>
         </Card>
 
@@ -292,7 +591,7 @@ export default function BonusPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {userData.user.totalPoints}
+              {totalPointsEarned}
             </div>
             <p className="text-xs text-muted-foreground">Lifetime points</p>
           </CardContent>
@@ -304,9 +603,12 @@ export default function BonusPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {userData.statistics.totalPartners}
+              {totalPartnersVisited}
             </div>
             <p className="text-xs text-muted-foreground">Unique locations</p>
+            {totalVisits > 0 && (
+              <p className="mt-1 text-xs text-muted-foreground">{totalVisits} visits confirmed</p>
+            )}
           </CardContent>
         </Card>
 
@@ -316,9 +618,14 @@ export default function BonusPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {userData.statistics.totalRedemptions}
+              {totalRedemptions}
             </div>
             <p className="text-xs text-muted-foreground">Total redemptions</p>
+            {pendingVisitCount > 0 && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                {pendingVisitCount} visit{pendingVisitCount === 1 ? '' : 's'} pending confirmation
+              </p>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -347,14 +654,27 @@ export default function BonusPage() {
                         {partner.partnerName}
                       </p>
                       <p className="text-2xl font-semibold text-primary">
-                        {partner.totalPoints} pts
+                        {partner.totalPoints + (partner.pendingPoints || 0)} pts
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {partner.totalPoints} confirmed
+                        {partner.pendingPoints ? ` • ${partner.pendingPoints} pending` : ''}
                       </p>
                     </div>
-                    <Badge variant="secondary">{partner.totalVisits} visits</Badge>
+                    <div className="flex flex-col items-end gap-1">
+                      <Badge variant="secondary">
+                        {(partner.totalVisits || 0) - (partner.pendingVisits || 0)} confirmed
+                      </Badge>
+                      {partner.pendingVisits > 0 && (
+                        <Badge variant="outline">{partner.pendingVisits} pending</Badge>
+                      )}
+                    </div>
+
                   </div>
                   <Separator className="my-3" />
                   <div className="space-y-1 text-xs text-muted-foreground">
                     <p>Pending visits: {partner.pendingVisits}</p>
+                    <p>Pending points: {partner.pendingPoints || 0}</p>
                     <p>Partner code: {partner.partnerId.toUpperCase()}</p>
                   </div>
                 </div>
@@ -444,33 +764,48 @@ export default function BonusPage() {
             </CardHeader>
             <CardContent>
               <ScrollArea className="h-[400px]">
-                <div className="space-y-4">
-                  {userData.visits.map((visit, index) => (
-                    <div key={index} className="flex items-center justify-between py-3 border-b last:border-0">
-                      <div className="flex items-start gap-3">
-                        <MapPin className="h-5 w-5 mt-0.5 text-muted-foreground" />
-                        <div>
-                          <p className="font-medium">{visit.partnerName}</p>
-                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                            <Calendar className="h-3 w-3" />
-                            {format(new Date(visit.visitDate), 'MMM dd, yyyy')}
-                            <span>•</span>
-                            <Ticket className="h-3 w-3" />
-                            {visit.ticketType}
+                {visits.length > 0 ? (
+                  <div className="space-y-4">
+                    {visits.map((visit, index) => (
+                      <div key={index} className="flex items-center justify-between py-3 border-b last:border-0">
+                        <div className="flex items-start gap-3">
+                          <MapPin className="h-5 w-5 mt-0.5 text-muted-foreground" />
+                          <div>
+                            <p className="font-medium">{visit.partnerName}</p>
+                            <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                              <Calendar className="h-3 w-3" />
+                              {safeFormatDate(visit.visitDate, 'MMM dd, yyyy')}
+                              {visit.status === 'visited' && visit.confirmedDate && (
+                                <>
+                                  <span>•</span>
+                                  <Check className="h-3 w-3" />
+                                  Confirmed {safeFormatDate(visit.confirmedDate, 'MMM dd, yyyy')}
+                                </>
+                              )}
+                              <span>•</span>
+                              <Ticket className="h-3 w-3" />
+                              {visit.ticketType}
+                            </div>
                           </div>
                         </div>
+                        <div className="text-right">
+                          <Badge variant={getStatusColor(visit.status) as any}>
+                            {visit.status}
+                          </Badge>
+                          <p className="text-sm font-medium mt-1">
+                            +{visit.pointsEarned} pts{visit.status === 'pending' ? ' pending' : ''}
+                          </p>
+                        </div>
                       </div>
-                      <div className="text-right">
-                        <Badge variant={getStatusColor(visit.status) as any}>
-                          {visit.status}
-                        </Badge>
-                        <p className="text-sm font-medium mt-1">
-                          +{visit.pointsEarned} pts
-                        </p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="flex h-full min-h-[200px] items-center justify-center">
+                    <p className="text-center text-sm text-muted-foreground">
+                      We couldn't find any visits for this email yet. Double-check that you registered or checked in with this address, or check back after a partner confirms your visit.
+                    </p>
+                  </div>
+                )}
               </ScrollArea>
             </CardContent>
           </Card>
@@ -489,31 +824,55 @@ export default function BonusPage() {
               <ScrollArea className="h-[400px]">
                 {pointsHistory.length > 0 ? (
                   <div className="space-y-4">
-                    {pointsHistory.map((entry, index) => (
-                      <div key={index} className="flex items-center justify-between py-3 border-b last:border-0">
-                        <div className="flex items-center gap-3">
-                          {entry.type === 'earned' ? (
-                            <TrendingUp className="h-5 w-5 text-green-500" />
-                          ) : (
-                            <Gift className="h-5 w-5 text-blue-500" />
-                          )}
-                          <div>
-                            <p className="font-medium">
-                              {entry.type === 'earned' ? 'Points Earned' : 'Reward Redeemed'}
-                            </p>
-                            <p className="text-sm text-muted-foreground">
-                              {entry.rewardName || 'Partner visit'}
-                            </p>
-                            <p className="text-xs text-muted-foreground">
-                              {format(new Date(entry.timestamp), 'MMM dd, yyyy HH:mm')}
-                            </p>
+                    {pointsHistory.map((entry, index) => {
+                      const amountClass =
+                        entry.type === 'redemption'
+                          ? 'text-red-500'
+                          : entry.type === 'pending'
+                            ? 'text-amber-500'
+                            : 'text-green-500';
+                      const amountPrefix = entry.type === 'redemption' ? '-' : '+';
+                      const amountSuffix = entry.type === 'pending' ? 'pts pending' : 'pts';
+                      const amountValue = Math.abs(entry.points);
+                      const title =
+                        entry.type === 'earned'
+                          ? 'Points Confirmed'
+                          : entry.type === 'pending'
+                            ? 'Points Pending Confirmation'
+                            : 'Reward Redeemed';
+
+                      return (
+                        <div key={index} className="flex flex-col gap-3 border-b py-3 last:border-0 sm:flex-row sm:items-center sm:justify-between">
+                          <div className="flex items-start gap-3">
+                            {entry.type === 'earned' ? (
+                              <TrendingUp className="mt-0.5 h-5 w-5 text-green-500" />
+                            ) : entry.type === 'pending' ? (
+                              <Clock className="mt-0.5 h-5 w-5 text-amber-500" />
+                            ) : (
+                              <Gift className="mt-0.5 h-5 w-5 text-blue-500" />
+                            )}
+                            <div>
+                              <p className="font-medium">{title}</p>
+                              <p className="text-sm text-muted-foreground">
+                                {entry.rewardName || entry.partnerName || 'Partner activity'}
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                {safeFormatDate(entry.timestamp, 'MMM dd, yyyy HH:mm')}
+                              </p>
+                              {entry.status === 'pending' && (
+                                <p className="mt-1 text-xs font-medium text-amber-600">
+                                  Awaiting partner confirmation
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                          <div className={`text-sm font-bold ${amountClass}`}>
+                            {amountPrefix}
+                            {amountValue} {amountSuffix}
                           </div>
                         </div>
-                        <div className={`font-bold ${entry.type === 'earned' ? 'text-green-500' : 'text-red-500'}`}>
-                          {entry.type === 'earned' ? '+' : '-'}{entry.points} pts
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 ) : (
                   <div className="flex h-full min-h-[200px] items-center justify-center">
@@ -530,7 +889,7 @@ export default function BonusPage() {
         {/* Redemptions Tab */}
         <TabsContent value="redemptions" className="space-y-4">
           {/* Active Redemptions Info Box */}
-          {userData.redemptions.filter(r => r.status === 'pending' || r.status === 'applied').length > 0 && (
+          {redemptions.filter(r => r.status === 'pending' || r.status === 'applied').length > 0 && (
             <Alert className="border-primary">
               <Star className="h-4 w-4" />
               <AlertTitle>How to use your redemption codes</AlertTitle>
@@ -542,10 +901,12 @@ export default function BonusPage() {
           )}
 
           <div className="grid grid-cols-1 gap-4">
-            {userData.redemptions.map((redemption) => {
+            {redemptions.map((redemption) => {
               const isActive = redemption.status === 'pending' || redemption.status === 'applied';
               const isUsed = redemption.status === 'used';
-              const isExpired = new Date(redemption.expiresAt) < new Date();
+              const expiryDate = redemption.expiresAt ? new Date(redemption.expiresAt) : null;
+              const isExpired =
+                !!expiryDate && !Number.isNaN(expiryDate.getTime()) && expiryDate < new Date();
               
               return (
                 <Card key={redemption.id} className={!isActive ? 'opacity-75' : ''}>
@@ -589,7 +950,7 @@ export default function BonusPage() {
                         <div>
                           <p className="text-muted-foreground">Redeemed</p>
                           <p className="font-medium">
-                            {safeFormatDate(redemption.redeemedAt)}
+                            {safeFormatDate(redemption.redeemedAt, 'MMM dd, yyyy')}
                           </p>
                         </div>
                         <div>
@@ -599,7 +960,7 @@ export default function BonusPage() {
                         <div>
                           <p className="text-muted-foreground">Expires</p>
                           <p className="font-medium">
-                            {safeFormatDate(redemption.expiresAt)}
+                            {safeFormatDate(redemption.expiresAt, 'MMM dd, yyyy')}
                           </p>
                         </div>
                       </div>
@@ -609,7 +970,7 @@ export default function BonusPage() {
               );
             })}
 
-            {userData.redemptions.length === 0 && (
+            {redemptions.length === 0 && (
               <Alert>
                 <AlertCircle className="h-4 w-4" />
                 <AlertTitle>No redemptions yet</AlertTitle>
