@@ -155,7 +155,12 @@ export function RedemptionProcessor({ partnerId, token }: { partnerId: string; t
             placeholder="Enter redemption code (e.g., RDM-XXX)"
             value={redemptionCode}
             onChange={(e) => setRedemptionCode(e.target.value)}
-            onKeyPress={(e) => e.key === 'Enter' && checkRedemption()}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                checkRedemption();
+              }
+            }}
             className="font-mono"
           />
           <Button 
@@ -299,10 +304,12 @@ export function RedemptionProcessor({ partnerId, token }: { partnerId: string; t
             )}
 
             {redemptionData.isValid && !redemptionData.canProcess && (
-              <Alert variant="warning">
-                <AlertCircle className="h-4 w-4" />
+              <Alert
+                className="border-yellow-200 bg-yellow-50 text-yellow-900 dark:border-yellow-900 dark:bg-yellow-950 dark:text-yellow-50"
+              >
+                <AlertCircle className="h-4 w-4 text-yellow-500" />
                 <AlertTitle>Cannot Process</AlertTitle>
-                <AlertDescription>
+                <AlertDescription className="text-yellow-800 dark:text-yellow-100">
                   This redemption is for a different partner.
                 </AlertDescription>
               </Alert>

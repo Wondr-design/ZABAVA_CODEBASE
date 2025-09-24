@@ -347,7 +347,12 @@ export default function BonusPage() {
                   placeholder="your@email.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  onKeyPress={(e) => e.key === "Enter" && fetchUserPoints()}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      fetchUserPoints();
+                    }
+                  }}
                 />
               </div>
 
@@ -679,7 +684,12 @@ export default function BonusPage() {
                   placeholder="your@email.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && fetchUserPoints()}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      fetchUserPoints();
+                    }
+                  }}
                 />
               </div>
 
