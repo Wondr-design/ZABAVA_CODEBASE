@@ -1,5 +1,6 @@
 import { kv } from '@vercel/kv';
 import { respond, setCors } from '../../../lib/utils.js';
+import jwt from 'jsonwebtoken';
 import { z } from 'zod';
 
 // Validation schemas
@@ -33,11 +34,21 @@ export default async function handler(req, res) {
 
   // Check admin authentication
   const adminSecret = req.headers['x-admin-secret'];
-  const validSecret = process.env.ADMIN_SECRET || 'zabava';
-  
-  if (!adminSecret || adminSecret !== validSecret) {
-    console.log('Admin auth failed:', { provided: adminSecret, expected: validSecret });
-    return respond(res, 401, { error: 'Unauthorized - Invalid admin secret' });
+  const configuredSecret = process.env.ADMIN_SECRET || '';
+
+  let authorized = false;
+  if (configuredSecret && adminSecret === configuredSecret) {
+    authorized = true;
+  } else if (process.env.JWT_SECRET && typeof req.headers.authorization === 'string' && req.headers.authorization.startsWith('Bearer ')) {
+    const token = req.headers.authorization.slice(7).trim();
+    try {
+      const payload = jwt.verify(token, process.env.JWT_SECRET);
+      if (payload && payload.role === 'admin') authorized = true;
+    } catch {}
+  }
+
+  if (!authorized) {
+    return respond(res, 401, { error: 'Unauthorized' });
   }
 
   try {

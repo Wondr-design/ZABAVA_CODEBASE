@@ -110,7 +110,7 @@ export default async function handler(req, res) {
       updatedAt: timestamp
     };
     
-    await kv.hmset(mainQrKey, qrRecord);
+    await kv.hset(mainQrKey, qrRecord);
     
     // Also maintain a simpler key for backward compatibility
     const compatKey = `qr:email:${normalizedEmail}`;
@@ -119,7 +119,7 @@ export default async function handler(req, res) {
     // Only update compat key if it's empty or for a different partner
     if (!existingCompat || !existingCompat.partnerId || 
         existingCompat.partnerId.toLowerCase() !== normalizedPartnerId) {
-      await kv.hmset(compatKey, qrRecord);
+      await kv.hset(compatKey, qrRecord);
     }
     
     // Add to user's visit list
@@ -136,7 +136,7 @@ export default async function handler(req, res) {
     
     // Track visit metadata
     const visitMetaKey = `visit:meta:${visitId}`;
-    await kv.hmset(visitMetaKey, {
+    await kv.hset(visitMetaKey, {
       visitId,
       email: normalizedEmail,
       partnerId: normalizedPartnerId,
