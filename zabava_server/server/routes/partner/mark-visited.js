@@ -1,5 +1,6 @@
 import { kv } from '@vercel/kv';
 import { z } from 'zod';
+import jwt from 'jsonwebtoken';
 
 /**
  * POST /api/partner/mark-visited
@@ -30,6 +31,19 @@ export default async function handler(req, res) {
   }
 
   try {
+    // Authenticate partner using JWT
+    const jwtSecret = process.env.JWT_SECRET || '';
+    const authHeader = req.headers.authorization || '';
+    if (!jwtSecret || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    let tokenPayload;
+    try {
+      tokenPayload = jwt.verify(authHeader.slice(7).trim(), jwtSecret);
+    } catch {
+      return res.status(401).json({ error: 'Invalid token' });
+    }
+
     // Validate request body
     const validation = markVisitedSchema.safeParse(req.body);
     
@@ -41,6 +55,11 @@ export default async function handler(req, res) {
     }
 
     const { email, partnerId, visitDate, notes } = validation.data;
+    // Ensure token partner matches request partner
+    const tokenPartnerId = String(tokenPayload?.partnerId || '').toLowerCase();
+    if (!tokenPartnerId || tokenPartnerId !== String(partnerId).trim().toLowerCase()) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
     const normalizedEmail = email.trim().toLowerCase();
     const normalizedPartnerId = partnerId.trim().toLowerCase();
     

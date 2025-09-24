@@ -179,29 +179,8 @@ export default async function registerHandler(req, res) {
       }
     }
 
-    // If user provided a redemption code, validate and attach it
-    if (redemptionCode) {
-      const redemptionKey = `redemption:${redemptionCode}`;
-      const redemptionData = await kv.hgetall(redemptionKey);
-      
-      if (redemptionData && redemptionData.email === normalizedEmail) {
-        // Check if redemption is still valid
-        const expiresAt = new Date(redemptionData.expiresAt);
-        if (expiresAt > new Date() && redemptionData.status === "pending") {
-          record.redemptionCode = redemptionCode;
-          record.redemptionDetails = JSON.stringify({
-            rewardName: redemptionData.rewardName,
-            pointsValue: redemptionData.pointsSpent,
-            redeemedAt: redemptionData.redeemedAt
-          });
-          
-          // Update redemption status to "approved" (being used)
-          await kv.hset(redemptionKey, "status", "approved");
-          await kv.hset(redemptionKey, "usedInBooking", key);
-          await kv.hset(redemptionKey, "usedAt", createdAtIso);
-        }
-      }
-    }
+    // Note: Redemption handling is performed above (status -> "applied").
+    // Avoid duplicate and inconsistent updates here.
 
     let partnerKey = extractPartnerId(rest);
 
