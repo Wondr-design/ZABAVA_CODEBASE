@@ -323,7 +323,66 @@ export default function BonusPage() {
       } as VisitRecord;
     });
   }, [userData]);
+  if (!userData) {
+    return (
+      <div className="container mx-auto px-4 py-8 max-w-2xl">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Trophy className="h-6 w-6" />
+              Bonus Points Portal
+            </CardTitle>
+            <CardDescription>
+              Enter your email to view your points and available rewards
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="email">Email Address</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  placeholder="your@email.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      fetchUserPoints();
+                    }
+                  }}
+                />
+              </div>
 
+              {error && (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertTitle>Error</AlertTitle>
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
+              )}
+
+              <Button
+                onClick={fetchUserPoints}
+                className="w-full"
+                disabled={isLoading}
+              >
+                {isLoading ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Loading...
+                  </>
+                ) : (
+                  "View My Points"
+                )}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
   const redemptions = useMemo(
     () =>
       (userData?.redemptions ?? []).map((redemption) => ({
@@ -599,7 +658,6 @@ export default function BonusPage() {
       return Number.isNaN(bDate) ? -1 : Number.isNaN(aDate) ? 1 : bDate - aDate;
     });
   }, [userData, visits, redemptions]);
-
   const renderLookupView = () => (
     <div className="container mx-auto px-4 py-8 max-w-2xl">
       <Card>
