@@ -70,6 +70,20 @@ async function getPartnerIds(requestedPartnerId) {
   return ids.filter(Boolean);
 }
 
+function toTimestamp(value) {
+  if (!value) {
+    return 0;
+  }
+  const time = new Date(value).getTime();
+  return Number.isNaN(time) ? 0 : time;
+}
+
+function sortSubmissionsByCreatedAt(submissions) {
+  return [...submissions].sort(
+    (a, b) => toTimestamp(b.createdAt) - toTimestamp(a.createdAt)
+  );
+}
+
 function aggregateMetrics(datasets) {
   const totals = { ...EMPTY_METRICS };
   const revenueTrendMap = new Map();
@@ -124,11 +138,7 @@ function aggregateMetrics(datasets) {
       value,
     }));
 
-  latest.sort((a, b) => {
-    const aTime = new Date(a.createdAt || 0).getTime();
-    const bTime = new Date(b.createdAt || 0).getTime();
-    return bTime - aTime;
-  });
+  latest.sort((a, b) => toTimestamp(b.createdAt) - toTimestamp(a.createdAt));
 
   return {
     totals,
@@ -260,8 +270,9 @@ export default async function handler(req, res) {
         submissions.map((submission) => ({ partnerId, ...submission }))
       );
       const filtered = filterSubmissions(allSubmissions, searchTerm);
+      const sorted = sortSubmissionsByCreatedAt(filtered);
       return respond(res, 200, {
-        items: filtered.slice(0, limit),
+        items: sorted.slice(0, limit),
         total: filtered.length,
       });
     }
@@ -274,7 +285,8 @@ export default async function handler(req, res) {
         submissions.map((submission) => ({ partnerId, ...submission }))
       );
       const filtered = filterSubmissions(allSubmissions, query.search || "");
-      const csv = buildCsv(filtered);
+      const sorted = sortSubmissionsByCreatedAt(filtered);
+      const csv = buildCsv(sorted);
       res.setHeader("Content-Type", "text/csv; charset=utf-8");
       res.setHeader(
         "Content-Disposition",

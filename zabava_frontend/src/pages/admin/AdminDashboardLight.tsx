@@ -99,6 +99,22 @@ type Submission = SubmissionRecord & {
   partnerName?: string;
 };
 
+const getSubmissionTimestamp = (value?: string | null): number => {
+  if (!value) {
+    return 0;
+  }
+  const time = new Date(value).getTime();
+  return Number.isNaN(time) ? 0 : time;
+};
+
+const sortSubmissionsByCreatedAt = <T extends { createdAt?: string | null }>(
+  entries: T[]
+): T[] => {
+  return [...entries].sort(
+    (a, b) => getSubmissionTimestamp(b.createdAt) - getSubmissionTimestamp(a.createdAt)
+  );
+};
+
 // Format relative time for notifications
 const formatRelativeTime = (timestamp: string) => {
   const date = new Date(timestamp);
@@ -330,13 +346,14 @@ export default function AdminDashboardLight() {
 
       const payload: SubmissionSearchResponse = await response.json();
       const items = Array.isArray(payload.items) ? payload.items : [];
-      return items.map((item) => ({
+      const mapped = items.map((item) => ({
         ...item,
         partnerId:
           (item as Submission).partnerId ||
           (item as SubmissionRecord & { partnerId?: string }).partnerId ||
           "",
       }));
+      return sortSubmissionsByCreatedAt(mapped);
     } catch (error) {
       console.error("Failed to fetch submissions dataset", error);
       return [];
@@ -386,6 +403,7 @@ export default function AdminDashboardLight() {
 
       const activitySource =
         latestSubmissions.length > 0 ? latestSubmissions : submissionsList;
+      const sortedActivity = sortSubmissionsByCreatedAt(activitySource);
 
       setMetrics({
         totalPartners:
@@ -406,7 +424,7 @@ export default function AdminDashboardLight() {
           analyticsData.totals?.totalRedemptions ??
           overviewData.totals?.redemptions ??
           0,
-        recentActivity: buildRecentActivityItems(activitySource),
+        recentActivity: buildRecentActivityItems(sortedActivity),
         partnerGrowth: buildPartnerGrowthDataset(submissionsList),
         revenueByPartner: buildRevenueByPartnerDataset(analyticsData.partners),
         submissions: submissionsList,
