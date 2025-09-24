@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { type ComponentProps, useMemo, useState } from "react";
 import {
   Card,
   CardContent,
@@ -85,6 +85,8 @@ interface RedemptionRecord {
   remainingPoints?: number;
   code?: string;
 }
+
+type BadgeVariant = ComponentProps<typeof Badge>["variant"];
 
 const safeFormatDate = (
   value?: string | Date | null,
@@ -251,14 +253,27 @@ export default function BonusPage() {
     }
   };
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
+  const getStatusColor = (status: string): BadgeVariant => {
+    const normalized = (status || "").toString().toLowerCase();
+
+    switch (normalized) {
       case "visited":
+      case "confirmed":
+      case "delivered":
+      case "used":
+      case "approved":
         return "success";
       case "pending":
+      case "awaiting":
+      case "in review":
+      case "applied":
         return "warning";
-      case "delivered":
-        return "success";
+      case "rejected":
+      case "cancelled":
+      case "canceled":
+      case "expired":
+      case "failed":
+        return "destructive";
       default:
         return "secondary";
     }
@@ -273,6 +288,42 @@ export default function BonusPage() {
 
     if (visitList.length === 0) {
       return [] as VisitRecord[];
+    }
+
+    return visitList.map((visit) => {
+      const pointsEarned = normalizePoints(
+        (visit as VisitRecord).pointsEarned ?? (visit as any).estimatedPoints
+      );
+      const normalizedStatus =
+        (visit.status || "").toLowerCase() === "visited"
+          ? "visited"
+          : "pending";
+      const partnerId =
+        visit.partnerId || (visit as any).partner_id || "unknown-partner";
+      const fallbackVisitDate =
+        visit.visitDate ||
+        (visit as any).confirmedDate ||
+        (visit as any).preferredDateTime ||
+        (visit as any).createdAt ||
+        (visit as any).scannedAt ||
+        new Date().toISOString();
+
+      return {
+        ...visit,
+        partnerId,
+        partnerName:
+          visit.partnerName ||
+          (visit as any).attractionName ||
+          partnerId.toString().toUpperCase(),
+        pointsEarned,
+        status: normalizedStatus,
+        confirmedDate: visit.confirmedDate || (visit as any).visitedAt || null,
+        ticketType: visit.ticketType || (visit as any).ticket || "Standard",
+        visitDate: fallbackVisitDate,
+      } as VisitRecord;
+    });
+  }, [userData]);
+
   if (!userData) {
     return (
       <div className="container mx-auto px-4 py-8 max-w-2xl">
@@ -328,50 +379,6 @@ export default function BonusPage() {
       </div>
     );
   }
-
-  const safeFormatDate = (
-    value: string | null | undefined,
-    dateFormat: string
-  ) => {
-    if (!value) return "Date unavailable";
-    const parsed = new Date(value);
-    if (Number.isNaN(parsed.getTime())) {
-      return "Date unavailable";
-    }
-
-    return visitList.map((visit) => {
-      const pointsEarned = normalizePoints(
-        (visit as VisitRecord).pointsEarned ?? (visit as any).estimatedPoints
-      );
-      const normalizedStatus =
-        (visit.status || "").toLowerCase() === "visited"
-          ? "visited"
-          : "pending";
-      const partnerId =
-        visit.partnerId || (visit as any).partner_id || "unknown-partner";
-      const fallbackVisitDate =
-        visit.visitDate ||
-        (visit as any).confirmedDate ||
-        (visit as any).preferredDateTime ||
-        (visit as any).createdAt ||
-        (visit as any).scannedAt ||
-        new Date().toISOString();
-
-      return {
-        ...visit,
-        partnerId,
-        partnerName:
-          visit.partnerName ||
-          (visit as any).attractionName ||
-          partnerId.toString().toUpperCase(),
-        pointsEarned,
-        status: normalizedStatus,
-        confirmedDate: visit.confirmedDate || (visit as any).visitedAt || null,
-        ticketType: visit.ticketType || (visit as any).ticket || "Standard",
-        visitDate: fallbackVisitDate,
-      } as VisitRecord;
-    });
-  }, [userData]);
 
   const redemptions = useMemo(
     () =>
