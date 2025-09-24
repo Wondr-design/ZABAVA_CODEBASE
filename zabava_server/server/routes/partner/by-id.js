@@ -67,12 +67,15 @@ export default async function handler(req, res) {
       return respond(res, 403, { error: "Forbidden" });
     }
 
-    const { submissions, metrics } = await loadPartnerData(partnerId);
+    const { submissions, metrics, partnerLabel } = await loadPartnerData(
+      partnerId
+    );
 
     return res.status(200).json({
       submissions,
       metrics,
-      partner: partnerId,
+      partner: partnerLabel || partnerId,
+      partnerId,
       lastUpdated: new Date().toISOString(),
     });
   } catch (err) {

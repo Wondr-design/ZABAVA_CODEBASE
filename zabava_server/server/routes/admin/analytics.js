@@ -70,13 +70,33 @@ async function getPartnerIds(requestedPartnerId) {
   return ids.filter(Boolean);
 }
 
+function toTimestamp(value) {
+  if (!value) {
+    return 0;
+  }
+  const time = new Date(value).getTime();
+  return Number.isNaN(time) ? 0 : time;
+}
+
+function sortSubmissionsByCreatedAt(submissions) {
+  return [...submissions].sort(
+    (a, b) => toTimestamp(b.createdAt) - toTimestamp(a.createdAt)
+  );
+}
+
 function aggregateMetrics(datasets) {
-  const totals = { ...EMPTY_METRICS };
+  const totals = {
+    ...EMPTY_METRICS,
+    activePartners: 0,
+    partnerCount: 0,
+    totalUsers: 0,
+    totalRedemptions: 0,
+  };
   const revenueTrendMap = new Map();
   const latest = [];
   const partners = [];
 
-  datasets.forEach(({ partnerId, submissions, metrics }) => {
+  datasets.forEach(({ partnerId, partnerLabel, submissions, metrics }) => {
     totals.count += metrics.count;
     totals.used += metrics.used;
     totals.unused += metrics.unused;
@@ -86,8 +106,13 @@ function aggregateMetrics(datasets) {
     totals.points += metrics.points;
     totals.bonusRedemptions += metrics.bonusRedemptions;
 
+    if (metrics.count > 0) {
+      totals.activePartners += 1;
+    }
+
     partners.push({
       id: partnerId,
+      label: partnerLabel || partnerId,
       metrics,
       lastSubmissionAt: submissions[0]?.createdAt || null,
     });
@@ -104,6 +129,11 @@ function aggregateMetrics(datasets) {
       }
       latest.push({
         partnerId,
+        partnerName:
+          submission.partnerName ||
+          submission.attractionName ||
+          partnerLabel ||
+          partnerId,
         ...submission,
       });
     });
@@ -113,6 +143,10 @@ function aggregateMetrics(datasets) {
     totals.averageRevenue = Math.round(totals.revenue / totals.count);
     totals.averagePoints = Math.round(totals.points / totals.count);
   }
+
+  totals.totalUsers = totals.count;
+  totals.partnerCount = datasets.length;
+  totals.totalRedemptions = totals.bonusRedemptions;
 
   const revenueTrend = Array.from(revenueTrendMap.entries())
     .sort((a, b) => new Date(a[0]).getTime() - new Date(b[0]).getTime())
@@ -124,11 +158,10 @@ function aggregateMetrics(datasets) {
       value,
     }));
 
-  latest.sort((a, b) => {
-    const aTime = new Date(a.createdAt || 0).getTime();
-    const bTime = new Date(b.createdAt || 0).getTime();
-    return bTime - aTime;
-  });
+  latest.sort((a, b) => toTimestamp(b.createdAt) - toTimestamp(a.createdAt));
+  partners.sort(
+    (a, b) => (b.metrics?.revenue || 0) - (a.metrics?.revenue || 0)
+  );
 
   return {
     totals,
@@ -260,8 +293,9 @@ export default async function handler(req, res) {
         submissions.map((submission) => ({ partnerId, ...submission }))
       );
       const filtered = filterSubmissions(allSubmissions, searchTerm);
+      const sorted = sortSubmissionsByCreatedAt(filtered);
       return respond(res, 200, {
-        items: filtered.slice(0, limit),
+        items: sorted.slice(0, limit),
         total: filtered.length,
       });
     }
@@ -274,7 +308,8 @@ export default async function handler(req, res) {
         submissions.map((submission) => ({ partnerId, ...submission }))
       );
       const filtered = filterSubmissions(allSubmissions, query.search || "");
-      const csv = buildCsv(filtered);
+      const sorted = sortSubmissionsByCreatedAt(filtered);
+      const csv = buildCsv(sorted);
       res.setHeader("Content-Type", "text/csv; charset=utf-8");
       res.setHeader(
         "Content-Disposition",

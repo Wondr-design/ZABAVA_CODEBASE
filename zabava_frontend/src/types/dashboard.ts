@@ -49,6 +49,7 @@ export interface AnalyticsPartnerOption {
 
 export interface AdminPartnerSummary {
   id: string;
+  label?: string;
   metrics: {
     count: number;
     used: number;

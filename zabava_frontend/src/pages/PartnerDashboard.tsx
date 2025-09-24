@@ -106,6 +106,7 @@ export default function PartnerDashboard() {
   const { data, loading, error, refetch } = usePartnerData(partnerId, {
     token,
     onUnauthorized: logout,
+    refreshIntervalMs: 15000,
   });
   const [refreshing, setRefreshing] = useState<boolean>(false);
   const [activeSection, setActiveSection] = useState<

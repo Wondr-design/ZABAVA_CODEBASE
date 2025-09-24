@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ChangeEvent,
+} from "react";
 import { useNavigate, useLocation, Routes, Route } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { useNotifications } from "@/contexts/NotificationContext";
@@ -33,26 +39,16 @@ import {
 } from "recharts";
 import {
   TrendingUp,
-  TrendingDown,
   Users,
   DollarSign,
   Activity,
-  Package,
   RefreshCw,
   Download,
-  Filter,
-  Calendar,
   ArrowUpRight,
-  ArrowDownRight,
-  MoreVertical,
   Bell,
   UserPlus,
   Gift,
   FileText,
-  BarChart3,
-  Settings,
-  Plus,
-  Search,
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -97,6 +93,22 @@ interface RecentActivityItem {
 type Submission = SubmissionRecord & {
   partnerId: string;
   partnerName?: string;
+};
+
+const getSubmissionTimestamp = (value?: string | null): number => {
+  if (!value) {
+    return 0;
+  }
+  const time = new Date(value).getTime();
+  return Number.isNaN(time) ? 0 : time;
+};
+
+const sortSubmissionsByCreatedAt = <T extends { createdAt?: string | null }>(
+  entries: T[]
+): T[] => {
+  return [...entries].sort(
+    (a, b) => getSubmissionTimestamp(b.createdAt) - getSubmissionTimestamp(a.createdAt)
+  );
 };
 
 // Format relative time for notifications
@@ -219,7 +231,11 @@ interface AdminMetrics {
   recentActivity: RecentActivityItem[];
   partnerGrowth: ChartDataPoint[];
   revenueByPartner: PieDataPoint[];
+  revenueTrend: Array<{ date: string; value: number }>;
+  partners: AdminPartnerSummary[];
   submissions?: Submission[];
+  analyticsTotals?: Record<string, number>;
+  generatedAt?: string;
 }
 
 interface OverviewData {
@@ -272,6 +288,10 @@ export default function AdminDashboardLight() {
     recentActivity: [],
     partnerGrowth: [],
     revenueByPartner: [],
+    revenueTrend: [],
+    partners: [],
+    submissions: [],
+    analyticsTotals: {},
   });
   const [loadingSubmissions, setLoadingSubmissions] = useState(false);
 
@@ -299,6 +319,8 @@ export default function AdminDashboardLight() {
   // Simple formatting helpers used by child views
   const formatNumber = (value: number): string => numberFormatter.format(value);
   const formatCurrency = (value: number): string => currencyFormatter.format(value);
+  const formatCurrencyDetailed = (value: number): string =>
+    currencyFormatterDetailed.format(value);
 
   // Admin access check - same as original AdminDashboard
   useEffect(() => {
@@ -330,13 +352,14 @@ export default function AdminDashboardLight() {
 
       const payload: SubmissionSearchResponse = await response.json();
       const items = Array.isArray(payload.items) ? payload.items : [];
-      return items.map((item) => ({
+      const mapped = items.map((item) => ({
         ...item,
         partnerId:
           (item as Submission).partnerId ||
           (item as SubmissionRecord & { partnerId?: string }).partnerId ||
           "",
       }));
+      return sortSubmissionsByCreatedAt(mapped);
     } catch (error) {
       console.error("Failed to fetch submissions dataset", error);
       return [];
@@ -386,30 +409,44 @@ export default function AdminDashboardLight() {
 
       const activitySource =
         latestSubmissions.length > 0 ? latestSubmissions : submissionsList;
+      const sortedActivity = sortSubmissionsByCreatedAt(activitySource);
+
+      const analyticsTotals = analyticsData.totals ?? {};
+      const partnersFromAnalytics = Array.isArray(analyticsData.partners)
+        ? analyticsData.partners
+        : [];
+      const revenueTrendDataset = Array.isArray(analyticsData.revenueTrend)
+        ? analyticsData.revenueTrend
+        : [];
 
       setMetrics({
         totalPartners:
           overviewData.totals?.activePartners ??
-          analyticsData.totals?.activePartners ??
+          analyticsTotals.activePartners ??
+          partnersFromAnalytics.length ??
           0,
         totalUsers:
-          analyticsData.totals?.count ??
-          analyticsData.totals?.totalUsers ??
+          analyticsTotals.count ??
+          analyticsTotals.totalUsers ??
           overviewData.totals?.users ??
           0,
         totalRevenue:
           overviewData.totals?.totalRevenue ??
-          analyticsData.totals?.revenue ??
+          analyticsTotals.revenue ??
           0,
         totalRedemptions:
-          analyticsData.totals?.bonusRedemptions ??
-          analyticsData.totals?.totalRedemptions ??
+          analyticsTotals.bonusRedemptions ??
+          analyticsTotals.totalRedemptions ??
           overviewData.totals?.redemptions ??
           0,
-        recentActivity: buildRecentActivityItems(activitySource),
+        recentActivity: buildRecentActivityItems(sortedActivity),
         partnerGrowth: buildPartnerGrowthDataset(submissionsList),
-        revenueByPartner: buildRevenueByPartnerDataset(analyticsData.partners),
+        revenueByPartner: buildRevenueByPartnerDataset(partnersFromAnalytics),
+        revenueTrend: revenueTrendDataset,
+        partners: partnersFromAnalytics,
         submissions: submissionsList,
+        analyticsTotals,
+        generatedAt: analyticsData.generatedAt,
       });
     } catch (error) {
       console.error("Failed to fetch admin data:", error);
@@ -418,6 +455,15 @@ export default function AdminDashboardLight() {
       setLoadingSubmissions(false);
     }
   }, [isAdmin, loadSubmissions, token]);
+
+  const handleManualRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await fetchAdminData();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [fetchAdminData]);
 
   const fetchAllSubmissions = useCallback(async () => {
     if (!isAdmin || !token) {
@@ -718,8 +764,34 @@ export default function AdminDashboardLight() {
                 />
               }
             />
-            <Route path="partners" element={<AdminPartners />} />
-            <Route path="analytics" element={<AdminAnalytics />} />
+            <Route
+              path="partners"
+              element={
+                <AdminPartners
+                  partners={metrics.partners}
+                  loading={loading}
+                  refreshing={refreshing}
+                  onRefresh={handleManualRefresh}
+                  formatNumber={formatNumber}
+                  formatCurrency={formatCurrency}
+                  formatCurrencyDetailed={formatCurrencyDetailed}
+                />
+              }
+            />
+            <Route
+              path="analytics"
+              element={
+                <AdminAnalytics
+                  metrics={metrics}
+                  loading={loading}
+                  refreshing={refreshing}
+                  onRefresh={handleManualRefresh}
+                  formatNumber={formatNumber}
+                  formatCurrency={formatCurrency}
+                  formatCurrencyDetailed={formatCurrencyDetailed}
+                />
+              }
+            />
           </Routes>
         </main>
       </div>
@@ -1058,44 +1130,641 @@ const AdminSubmissions = ({ metrics, loading, onRefresh }: AdminSubmissionsProps
   </Card>
 );
 
-const AdminPartners = () => (
-  <div className="space-y-6">
-    <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <div>
-            <CardTitle>Partner Management</CardTitle>
-            <CardDescription>
-              Manage all partner accounts and settings
-            </CardDescription>
-          </div>
-          <Button size="sm" className="gap-2">
-            <Plus className="h-4 w-4" />
-            Add Partner
-          </Button>
-        </div>
-      </CardHeader>
-      <CardContent>
-        <p className="text-gray-500">
-          Partner management interface will be displayed here...
-        </p>
-      </CardContent>
-    </Card>
-  </div>
-);
+interface AdminPartnersProps {
+  partners: AdminPartnerSummary[];
+  loading: boolean;
+  refreshing: boolean;
+  onRefresh: () => Promise<void> | void;
+  formatNumber: (value: number) => string;
+  formatCurrency: (value: number) => string;
+  formatCurrencyDetailed: (value: number) => string;
+}
 
-const AdminAnalytics = () => (
-  <div className="space-y-6">
-    <Card>
-      <CardHeader>
-        <CardTitle>Analytics Dashboard</CardTitle>
-        <CardDescription>Detailed analytics and insights</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <p className="text-gray-500">
-          Advanced analytics will be displayed here...
-        </p>
-      </CardContent>
-    </Card>
-  </div>
-);
+const AdminPartners = ({
+  partners,
+  loading,
+  refreshing,
+  onRefresh,
+  formatNumber,
+  formatCurrency,
+  formatCurrencyDetailed,
+}: AdminPartnersProps) => {
+  const [searchTerm, setSearchTerm] = useState("");
+
+  const summary = useMemo(
+    () =>
+      partners.reduce(
+        (acc, partner) => {
+          const partnerMetrics = partner.metrics ?? {};
+          const count = partnerMetrics.count ?? 0;
+          const used = partnerMetrics.used ?? 0;
+          const revenue = partnerMetrics.revenue ?? 0;
+
+          if (count > 0) {
+            acc.active += 1;
+          }
+
+          acc.submissions += count;
+          acc.used += used;
+          acc.revenue += revenue;
+          return acc;
+        },
+        {
+          total: partners.length,
+          active: 0,
+          submissions: 0,
+          used: 0,
+          revenue: 0,
+        }
+      ),
+    [partners]
+  );
+
+  const conversionRate = summary.submissions
+    ? (summary.used / summary.submissions) * 100
+    : 0;
+  const averageRevenue =
+    summary.submissions > 0 ? summary.revenue / summary.submissions : 0;
+
+  const filteredPartners = useMemo(() => {
+    const normalized = searchTerm.trim().toLowerCase();
+    const sorted = [...partners].sort((a, b) => {
+      const byDate =
+        getSubmissionTimestamp(b.lastSubmissionAt) -
+        getSubmissionTimestamp(a.lastSubmissionAt);
+      if (byDate !== 0) {
+        return byDate;
+      }
+      return (b.metrics?.revenue ?? 0) - (a.metrics?.revenue ?? 0);
+    });
+
+    if (!normalized) {
+      return sorted;
+    }
+
+    return sorted.filter((partner) => {
+      const label = `${partner.label || partner.id}`.toLowerCase();
+      return (
+        label.includes(normalized) ||
+        partner.id.toLowerCase().includes(normalized)
+      );
+    });
+  }, [partners, searchTerm]);
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <CardTitle>Partner Management</CardTitle>
+              <CardDescription>
+                Track partner performance and activity in real time
+              </CardDescription>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-2"
+              onClick={() => void onRefresh()}
+              disabled={loading || refreshing}
+            >
+              <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+              {refreshing ? "Refreshing" : "Refresh"}
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+            <div className="rounded-lg border border-gray-200 bg-white p-4">
+              <p className="text-sm text-muted-foreground">Total Partners</p>
+              <p className="mt-2 text-2xl font-semibold">
+                {formatNumber(summary.total)}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {formatNumber(summary.active)} active this month
+              </p>
+            </div>
+            <div className="rounded-lg border border-gray-200 bg-white p-4">
+              <p className="text-sm text-muted-foreground">Total Submissions</p>
+              <p className="mt-2 text-2xl font-semibold">
+                {formatNumber(summary.submissions)}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {formatNumber(summary.used)} confirmed redemptions
+              </p>
+            </div>
+            <div className="rounded-lg border border-gray-200 bg-white p-4">
+              <p className="text-sm text-muted-foreground">Total Revenue</p>
+              <p className="mt-2 text-2xl font-semibold">
+                {formatCurrency(summary.revenue)}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Avg {formatCurrencyDetailed(averageRevenue)} per submission
+              </p>
+            </div>
+            <div className="rounded-lg border border-gray-200 bg-white p-4">
+              <p className="text-sm text-muted-foreground">Conversion Rate</p>
+              <p className="mt-2 text-2xl font-semibold">
+                {conversionRate.toFixed(1)}%
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Across {formatNumber(summary.submissions || 0)} submissions
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <CardTitle>Partner Directory</CardTitle>
+              <CardDescription>
+                Submission, conversion, and revenue performance by partner
+              </CardDescription>
+            </div>
+            <Input
+              value={searchTerm}
+              onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                setSearchTerm(event.target.value)
+              }
+              placeholder="Search partners..."
+              className="w-full md:w-64"
+            />
+          </div>
+        </CardHeader>
+        <CardContent>
+          {loading && partners.length === 0 ? (
+            <div className="flex h-32 items-center justify-center text-sm text-muted-foreground">
+              Loading partner data...
+            </div>
+          ) : filteredPartners.length === 0 ? (
+            <div className="flex h-32 items-center justify-center text-sm text-muted-foreground">
+              No partners match the current filters.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-3 py-3 text-left text-xs font-medium uppercase tracking-wide text-gray-500">
+                      Partner
+                    </th>
+                    <th className="px-3 py-3 text-center text-xs font-medium uppercase tracking-wide text-gray-500">
+                      Submissions
+                    </th>
+                    <th className="px-3 py-3 text-center text-xs font-medium uppercase tracking-wide text-gray-500">
+                      Conversion
+                    </th>
+                    <th className="px-3 py-3 text-right text-xs font-medium uppercase tracking-wide text-gray-500">
+                      Revenue
+                    </th>
+                    <th className="px-3 py-3 text-right text-xs font-medium uppercase tracking-wide text-gray-500">
+                      Last Submission
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 bg-white">
+                  {filteredPartners.map((partner) => {
+                    const partnerMetrics = partner.metrics ?? {};
+                    const count = partnerMetrics.count ?? 0;
+                    const used = partnerMetrics.used ?? 0;
+                    const revenue = partnerMetrics.revenue ?? 0;
+                    const conversion = count ? (used / count) * 100 : 0;
+                    const displayName = partner.label || partner.id;
+
+                    return (
+                      <tr key={partner.id} className="hover:bg-gray-50">
+                        <td className="whitespace-nowrap px-3 py-4 text-sm">
+                          <div className="font-medium text-gray-900">
+                            {displayName}
+                          </div>
+                          <div className="text-xs uppercase text-gray-500">
+                            {partner.id}
+                          </div>
+                        </td>
+                        <td className="px-3 py-4 text-center text-sm text-gray-600">
+                          <div className="font-medium text-gray-900">
+                            {formatNumber(count)}
+                          </div>
+                          <div className="text-xs text-gray-500">
+                            Used: {formatNumber(used)}
+                          </div>
+                        </td>
+                        <td className="px-3 py-4 text-center">
+                          <Badge
+                            variant={count ? "success" : "secondary"}
+                            className="justify-center px-3"
+                          >
+                            {count ? `${conversion.toFixed(1)}%` : "No activity"}
+                          </Badge>
+                        </td>
+                        <td className="px-3 py-4 text-right text-sm font-medium text-gray-900">
+                          {formatCurrencyDetailed(revenue)}
+                        </td>
+                        <td className="px-3 py-4 text-right text-sm text-gray-500">
+                          {partner.lastSubmissionAt
+                            ? formatDate(partner.lastSubmissionAt)
+                            : "—"}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+};
+
+interface AdminAnalyticsProps {
+  metrics: AdminMetrics;
+  loading: boolean;
+  refreshing: boolean;
+  onRefresh: () => Promise<void> | void;
+  formatNumber: (value: number) => string;
+  formatCurrency: (value: number) => string;
+  formatCurrencyDetailed: (value: number) => string;
+}
+
+const AdminAnalytics = ({
+  metrics,
+  loading,
+  refreshing,
+  onRefresh,
+  formatNumber,
+  formatCurrency,
+  formatCurrencyDetailed,
+}: AdminAnalyticsProps) => {
+  const analyticsTotals = metrics.analyticsTotals ?? {};
+  const submissionCount =
+    analyticsTotals.count ?? metrics.submissions?.length ?? 0;
+  const usedCount = analyticsTotals.used ?? 0;
+  const visitedCount = analyticsTotals.visited ?? 0;
+  const conversionRate = submissionCount
+    ? (usedCount / submissionCount) * 100
+    : 0;
+  const visitRate = submissionCount
+    ? (visitedCount / submissionCount) * 100
+    : 0;
+  const totalRevenue = analyticsTotals.revenue ?? metrics.totalRevenue ?? 0;
+  const totalPoints = analyticsTotals.points ?? 0;
+  const totalRedemptions =
+    analyticsTotals.totalRedemptions ?? metrics.totalRedemptions ?? 0;
+  const averageRevenue =
+    analyticsTotals.averageRevenue ??
+    (submissionCount ? totalRevenue / submissionCount : 0);
+  const averagePoints =
+    analyticsTotals.averagePoints ??
+    (submissionCount ? totalPoints / submissionCount : 0);
+
+  const revenueTrendData = metrics.revenueTrend ?? [];
+  const partnerGrowthData = metrics.partnerGrowth ?? [];
+  const revenueByPartnerData = metrics.revenueByPartner ?? [];
+  const topPartners = useMemo(
+    () => metrics.partners.slice(0, 6),
+    [metrics.partners]
+  );
+  const recentActivity = metrics.recentActivity ?? [];
+
+  const updatedLabel = metrics.generatedAt
+    ? `Updated ${formatRelativeTime(metrics.generatedAt)}`
+    : undefined;
+
+  const getActivityVisuals = (type: RecentActivityItem["type"]) => {
+    switch (type) {
+      case "partner":
+        return { Icon: UserPlus, container: "bg-blue-100", icon: "text-blue-600" };
+      case "user":
+        return { Icon: Users, container: "bg-green-100", icon: "text-green-600" };
+      case "redemption":
+        return { Icon: Gift, container: "bg-purple-100", icon: "text-purple-600" };
+      case "submission":
+        return { Icon: FileText, container: "bg-yellow-100", icon: "text-yellow-600" };
+      default:
+        return { Icon: Bell, container: "bg-gray-100", icon: "text-gray-600" };
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <CardTitle>Analytics Dashboard</CardTitle>
+              <CardDescription>Detailed analytics and insights</CardDescription>
+            </div>
+            <div className="flex flex-col items-start gap-2 sm:items-end">
+              {updatedLabel ? (
+                <span className="text-xs text-muted-foreground">{updatedLabel}</span>
+              ) : null}
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                onClick={() => void onRefresh()}
+                disabled={loading || refreshing}
+              >
+                <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+                {refreshing ? "Refreshing" : "Refresh"}
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <div className="rounded-lg border border-gray-200 bg-white p-4">
+              <p className="text-sm text-muted-foreground">Total Submissions</p>
+              <p className="mt-2 text-2xl font-semibold">
+                {formatNumber(submissionCount)}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {formatNumber(usedCount)} redemptions · {formatNumber(visitedCount)} visits
+              </p>
+            </div>
+            <div className="rounded-lg border border-gray-200 bg-white p-4">
+              <p className="text-sm text-muted-foreground">Conversion Rate</p>
+              <p className="mt-2 text-2xl font-semibold">
+                {conversionRate.toFixed(1)}%
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Visit rate {visitRate.toFixed(1)}%
+              </p>
+            </div>
+            <div className="rounded-lg border border-gray-200 bg-white p-4">
+              <p className="text-sm text-muted-foreground">Total Revenue</p>
+              <p className="mt-2 text-2xl font-semibold">
+                {formatCurrency(totalRevenue)}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Avg {formatCurrencyDetailed(averageRevenue)} per submission
+              </p>
+            </div>
+            <div className="rounded-lg border border-gray-200 bg-white p-4">
+              <p className="text-sm text-muted-foreground">Total Points Awarded</p>
+              <p className="mt-2 text-2xl font-semibold">
+                {formatNumber(Math.round(totalPoints))}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Avg {formatNumber(Math.round(averagePoints))} pts per visit
+              </p>
+            </div>
+            <div className="rounded-lg border border-gray-200 bg-white p-4">
+              <p className="text-sm text-muted-foreground">Total Redemptions</p>
+              <p className="mt-2 text-2xl font-semibold">
+                {formatNumber(totalRedemptions)}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Includes bonus rewards and partner perks
+              </p>
+            </div>
+            <div className="rounded-lg border border-gray-200 bg-white p-4">
+              <p className="text-sm text-muted-foreground">Active Partners</p>
+              <p className="mt-2 text-2xl font-semibold">
+                {formatNumber(metrics.partners.length)}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Reporting data in the current period
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>Engagement Trend</CardTitle>
+            <CardDescription>Daily submissions and revenue</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {partnerGrowthData.length ? (
+              <ResponsiveContainer width="100%" height={320}>
+                <LineChart data={partnerGrowthData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                  <XAxis dataKey="date" stroke="#94a3b8" fontSize={12} />
+                  <YAxis stroke="#94a3b8" fontSize={12} />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "white",
+                      border: "1px solid #e2e8f0",
+                      borderRadius: "8px",
+                    }}
+                  />
+                  <Legend />
+                  <Line
+                    type="monotone"
+                    dataKey="users"
+                    name="Submissions"
+                    stroke="#6366f1"
+                    strokeWidth={2}
+                    dot={false}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="revenue"
+                    name="Revenue"
+                    stroke="#22c55e"
+                    strokeWidth={2}
+                    dot={false}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex h-64 items-center justify-center text-sm text-muted-foreground">
+                Waiting for submission activity...
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Revenue Trend</CardTitle>
+            <CardDescription>Last 30 days of partner revenue</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {revenueTrendData.length ? (
+              <ResponsiveContainer width="100%" height={320}>
+                <LineChart data={revenueTrendData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                  <XAxis dataKey="date" stroke="#94a3b8" fontSize={12} />
+                  <YAxis stroke="#94a3b8" fontSize={12} />
+                  <Tooltip
+                    formatter={(value: number) => formatCurrencyDetailed(value)}
+                    contentStyle={{
+                      backgroundColor: "white",
+                      border: "1px solid #e2e8f0",
+                      borderRadius: "8px",
+                    }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="value"
+                    name="Revenue"
+                    stroke="#f97316"
+                    strokeWidth={2}
+                    dot={{ r: 2 }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex h-64 items-center justify-center text-sm text-muted-foreground">
+                No revenue data recorded for this range.
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>Revenue by Partner</CardTitle>
+            <CardDescription>Share of overall program revenue</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {revenueByPartnerData.length ? (
+              <ResponsiveContainer width="100%" height={320}>
+                <PieChart>
+                  <Pie
+                    data={revenueByPartnerData}
+                    dataKey="value"
+                    nameKey="name"
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={60}
+                    outerRadius={100}
+                    paddingAngle={2}
+                  >
+                    {revenueByPartnerData.map((entry, index) => (
+                      <Cell key={entry.name} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    formatter={(value: number, name: string) => [
+                      formatCurrencyDetailed(value),
+                      name,
+                    ]}
+                  />
+                  <Legend />
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex h-64 items-center justify-center text-sm text-muted-foreground">
+                Revenue data will appear once partners begin reporting.
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Top Performing Partners</CardTitle>
+            <CardDescription>Leaders by revenue and conversion</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {topPartners.length ? (
+              <div className="space-y-3">
+                {topPartners.map((partner) => {
+                  const partnerMetrics = partner.metrics ?? {};
+                  const count = partnerMetrics.count ?? 0;
+                  const used = partnerMetrics.used ?? 0;
+                  const revenue = partnerMetrics.revenue ?? 0;
+                  const conversion = count ? (used / count) * 100 : 0;
+
+                  return (
+                    <div
+                      key={partner.id}
+                      className="flex items-center justify-between rounded-lg border border-gray-200 p-3"
+                    >
+                      <div>
+                        <p className="text-sm font-medium text-gray-900">
+                          {partner.label || partner.id}
+                        </p>
+                        <p className="text-xs text-gray-500">
+                          {formatNumber(count)} submissions · {conversion.toFixed(1)}% conversion
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-sm font-semibold text-gray-900">
+                          {formatCurrencyDetailed(revenue)}
+                        </p>
+                        <p className="text-xs text-gray-500">
+                          Last {partner.lastSubmissionAt
+                            ? formatRelativeTime(partner.lastSubmissionAt)
+                            : "—"}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="flex h-64 items-center justify-center text-sm text-muted-foreground">
+                Partner performance data will appear here once submissions arrive.
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Recent Activity</CardTitle>
+          <CardDescription>Latest submissions, rewards, and partner updates</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {recentActivity.length ? (
+            <div className="space-y-4">
+              {recentActivity.map((activity, index) => {
+                const visuals = getActivityVisuals(activity.type);
+                const Icon = visuals.Icon;
+                return (
+                  <div
+                    key={`${activity.title}-${activity.timestamp}-${index}`}
+                    className="flex items-center justify-between border-b border-gray-200 pb-3 last:border-b-0 last:pb-0"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div
+                        className={cn(
+                          "flex h-10 w-10 items-center justify-center rounded-full",
+                          visuals.container
+                        )}
+                      >
+                        <Icon className={cn("h-5 w-5", visuals.icon)} />
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-gray-900">
+                          {activity.title}
+                        </p>
+                        {activity.description ? (
+                          <p className="text-xs text-gray-500">
+                            {activity.description}
+                          </p>
+                        ) : null}
+                      </div>
+                    </div>
+                    <span className="text-xs text-gray-500">
+                      {formatRelativeTime(activity.timestamp)}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="flex h-32 items-center justify-center text-sm text-muted-foreground">
+              Activity will appear here once submissions start flowing in.
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+};
