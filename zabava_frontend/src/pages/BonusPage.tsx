@@ -25,6 +25,7 @@ import {
 import { getApiConfig } from '@/lib/config';
 import { format } from 'date-fns';
 
+
 interface PartnerVisitSummary {
   partnerId: string;
   partnerName: string;
@@ -72,6 +73,24 @@ interface RedemptionRecord {
   remainingPoints?: number;
   code?: string;
 }
+
+const safeFormatDate = (value?: string | Date | null, dateFormat = 'MMM dd, yyyy') => {
+  if (!value) {
+    return 'Date unavailable';
+  }
+
+  const dateValue = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(dateValue.getTime())) {
+    return 'Date unavailable';
+  }
+
+  try {
+    return format(dateValue, dateFormat);
+  } catch (error) {
+    return 'Date unavailable';
+  }
+};
+
 
 interface UserPoints {
   user: {
@@ -529,6 +548,10 @@ export default function BonusPage() {
       return Number.isNaN(bDate) ? -1 : Number.isNaN(aDate) ? 1 : bDate - aDate;
     });
   }, [userData.pointsHistory, visits, redemptions]);
+          
+  //const partnerStats = userData.statistics?.visitsByPartner || [];
+  //const pointsHistory = userData.pointsHistory || [];
+
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -646,6 +669,7 @@ export default function BonusPage() {
                         <Badge variant="outline">{partner.pendingVisits} pending</Badge>
                       )}
                     </div>
+
                   </div>
                   <Separator className="my-3" />
                   <div className="space-y-1 text-xs text-muted-foreground">
