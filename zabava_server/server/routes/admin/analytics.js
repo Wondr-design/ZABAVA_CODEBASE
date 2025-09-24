@@ -85,12 +85,18 @@ function sortSubmissionsByCreatedAt(submissions) {
 }
 
 function aggregateMetrics(datasets) {
-  const totals = { ...EMPTY_METRICS };
+  const totals = {
+    ...EMPTY_METRICS,
+    activePartners: 0,
+    partnerCount: 0,
+    totalUsers: 0,
+    totalRedemptions: 0,
+  };
   const revenueTrendMap = new Map();
   const latest = [];
   const partners = [];
 
-  datasets.forEach(({ partnerId, submissions, metrics }) => {
+  datasets.forEach(({ partnerId, partnerLabel, submissions, metrics }) => {
     totals.count += metrics.count;
     totals.used += metrics.used;
     totals.unused += metrics.unused;
@@ -100,8 +106,13 @@ function aggregateMetrics(datasets) {
     totals.points += metrics.points;
     totals.bonusRedemptions += metrics.bonusRedemptions;
 
+    if (metrics.count > 0) {
+      totals.activePartners += 1;
+    }
+
     partners.push({
       id: partnerId,
+      label: partnerLabel || partnerId,
       metrics,
       lastSubmissionAt: submissions[0]?.createdAt || null,
     });
@@ -118,6 +129,11 @@ function aggregateMetrics(datasets) {
       }
       latest.push({
         partnerId,
+        partnerName:
+          submission.partnerName ||
+          submission.attractionName ||
+          partnerLabel ||
+          partnerId,
         ...submission,
       });
     });
@@ -127,6 +143,10 @@ function aggregateMetrics(datasets) {
     totals.averageRevenue = Math.round(totals.revenue / totals.count);
     totals.averagePoints = Math.round(totals.points / totals.count);
   }
+
+  totals.totalUsers = totals.count;
+  totals.partnerCount = datasets.length;
+  totals.totalRedemptions = totals.bonusRedemptions;
 
   const revenueTrend = Array.from(revenueTrendMap.entries())
     .sort((a, b) => new Date(a[0]).getTime() - new Date(b[0]).getTime())
@@ -139,6 +159,9 @@ function aggregateMetrics(datasets) {
     }));
 
   latest.sort((a, b) => toTimestamp(b.createdAt) - toTimestamp(a.createdAt));
+  partners.sort(
+    (a, b) => (b.metrics?.revenue || 0) - (a.metrics?.revenue || 0)
+  );
 
   return {
     totals,

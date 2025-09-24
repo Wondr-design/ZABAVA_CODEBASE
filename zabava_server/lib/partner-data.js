@@ -44,20 +44,46 @@ export function parsePayload(record) {
 
 export async function loadPartnerData(partnerId) {
   const normalizedId = normalizePartnerId(partnerId);
-  if (!normalizedId) {
+
+  if (!normalizedId && !partnerId) {
     return {
       partnerId,
       submissions: [],
       metrics: { ...EMPTY_METRICS },
+      partnerLabel: null,
     };
   }
 
-  const emails = await kv.smembers(`partner:${normalizedId}`);
+  const keys = new Set();
+  if (normalizedId) {
+    keys.add(`partner:${normalizedId}`);
+  }
+  if (partnerId && partnerId !== normalizedId) {
+    keys.add(`partner:${partnerId}`);
+  }
+
+  const emailSets = await Promise.all(
+    Array.from(keys).map(async (key) => {
+      try {
+        const set = await kv.smembers(key);
+        return Array.isArray(set) ? set : [];
+      } catch (err) {
+        console.warn(`Failed to read partner set ${key}`, err);
+        return [];
+      }
+    })
+  );
+
+  const emails = Array.from(
+    new Set(emailSets.flat().filter((value) => typeof value === "string" && value))
+  );
+
   if (!emails || emails.length === 0) {
     return {
       partnerId,
       submissions: [],
       metrics: { ...EMPTY_METRICS },
+      partnerLabel: null,
     };
   }
 
@@ -74,8 +100,10 @@ export async function loadPartnerData(partnerId) {
         Number(payload.estimatedPoints || record.estimatedPoints || 0) || 0;
 
       const visited = String(record.visited || "").toLowerCase() === "true";
+      const canonicalPartnerId = normalizedId || String(partnerId || "").trim();
+
       submissions.push({
-        partnerId: normalizedId,
+        partnerId: canonicalPartnerId,
         email: record.email,
         used: String(record.used || "").toLowerCase() === "true",
         createdAt: record.createdAt || null,
@@ -119,6 +147,21 @@ export async function loadPartnerData(partnerId) {
   });
 
   const count = submissions.length;
+  let partnerLabel = null;
+
+  for (const submission of submissions) {
+    partnerLabel =
+      submission.partnerName ||
+      submission.attractionName ||
+      submission.originalPayload?.partnerName ||
+      submission.originalPayload?.attractionName ||
+      submission.originalPayload?.partnerLabel ||
+      null;
+    if (partnerLabel) {
+      break;
+    }
+  }
+
   const metrics = {
     count,
     used,
@@ -136,6 +179,7 @@ export async function loadPartnerData(partnerId) {
     partnerId,
     submissions,
     metrics,
+    partnerLabel,
   };
 }
 
