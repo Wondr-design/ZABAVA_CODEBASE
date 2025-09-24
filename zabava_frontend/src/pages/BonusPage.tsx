@@ -268,7 +268,11 @@ export default function BonusPage() {
     const numeric = typeof value === "number" ? value : Number(value);
     return Number.isFinite(numeric) ? numeric : 0;
   };
+  const visits = useMemo(() => {
+    const visitList = userData?.visits ?? [];
 
+    if (visitList.length === 0) {
+      return [] as VisitRecord[];
   if (!userData) {
     return (
       <div className="container mx-auto px-4 py-8 max-w-2xl">
@@ -334,12 +338,8 @@ export default function BonusPage() {
     if (Number.isNaN(parsed.getTime())) {
       return "Date unavailable";
     }
-    return format(parsed, dateFormat);
-  };
 
-  const rawVisits = userData.visits || [];
-  const visits = useMemo(() => {
-    return rawVisits.map((visit) => {
+    return visitList.map((visit) => {
       const pointsEarned = normalizePoints(
         (visit as VisitRecord).pointsEarned ?? (visit as any).estimatedPoints
       );
@@ -371,21 +371,34 @@ export default function BonusPage() {
         visitDate: fallbackVisitDate,
       } as VisitRecord;
     });
-  }, [rawVisits]);
+  }, [userData]);
 
-  const rawRedemptions = userData.redemptions || [];
   const redemptions = useMemo(
     () =>
-      rawRedemptions.map((redemption) => ({
+      (userData?.redemptions ?? []).map((redemption) => ({
         ...redemption,
         pointsSpent: normalizePoints(redemption.pointsSpent),
       })),
-    [rawRedemptions]
+    [userData]
   );
 
-  const partnerStatsFromServer = userData.statistics?.visitsByPartner || [];
+  const partnerStatsFromServer = useMemo(
+    () => userData?.statistics?.visitsByPartner ?? [],
+    [userData]
+  );
 
   const derivedVisitData = useMemo(() => {
+    if (visits.length === 0) {
+      return {
+        derivedPartnerStats: [] as PartnerVisitSummary[],
+        confirmedPoints: 0,
+        pendingPoints: 0,
+        confirmedVisits: 0,
+        pendingVisits: 0,
+        partnerCount: 0,
+      };
+    }
+
     const partnerMap = new Map<string, PartnerVisitSummary>();
     let confirmedPoints = 0;
     let pendingPoints = 0;
@@ -480,7 +493,7 @@ export default function BonusPage() {
         ),
       };
     });
-  }, [partnerStatsFromServer, derivedVisitData.derivedPartnerStats]);
+  }, [partnerStatsFromServer, derivedVisitData]);
 
   const derivedRedemptionPoints = useMemo(
     () =>
@@ -491,24 +504,13 @@ export default function BonusPage() {
     [redemptions]
   );
 
-  const serverTotalPoints = normalizePoints(userData.user.totalPoints);
-  const serverAvailablePoints = normalizePoints(userData.user.availablePoints);
-  const serverTotalPartners = Math.max(
-    0,
-    Math.round(normalizePoints(userData.statistics.totalPartners))
-  );
-  const serverTotalRedemptions = Math.max(
-    0,
-    Math.round(normalizePoints(userData.statistics.totalRedemptions))
-  );
-  const serverTotalVisits = Math.max(
-    0,
-    Math.round(normalizePoints(userData.statistics.totalVisits))
-  );
-  const serverPendingVisits = Math.max(
-    0,
-    Math.round(normalizePoints(userData.statistics.pendingVisits))
-  );
+
+  const serverTotalPoints = normalizePoints(userData?.user?.totalPoints ?? 0);
+  const serverAvailablePoints = normalizePoints(userData?.user?.availablePoints ?? 0);
+  const serverTotalPartners = Math.max(0, Math.round(normalizePoints(userData?.statistics?.totalPartners ?? 0)));
+  const serverTotalRedemptions = Math.max(0, Math.round(normalizePoints(userData?.statistics?.totalRedemptions ?? 0)));
+  const serverTotalVisits = Math.max(0, Math.round(normalizePoints(userData?.statistics?.totalVisits ?? 0)));
+  const serverPendingVisits = Math.max(0, Math.round(normalizePoints(userData?.statistics?.pendingVisits ?? 0)));
 
   const totalPointsEarned =
     serverTotalPoints > 0
@@ -539,28 +541,22 @@ export default function BonusPage() {
       : derivedVisitData.pendingVisits;
 
   const pointsHistory = useMemo(() => {
-    const historyFromServer: PointsHistoryEntry[] = (
-      userData.pointsHistory || []
-    ).map((entry) => {
-      const normalizedType: PointsHistoryEntry["type"] =
-        entry.type === "redemption"
-          ? "redemption"
-          : entry.type === "pending"
-          ? "pending"
-          : "earned";
-      const statusValue = (entry.status || "").toString().toLowerCase();
-      const normalizedStatus = [
-        "pending",
-        "awaiting",
-        "in review",
-        "applied",
-      ].includes(statusValue)
-        ? "pending"
-        : statusValue
-        ? "confirmed"
-        : normalizedType === "earned"
-        ? "confirmed"
-        : undefined;
+    const historyFromServer: PointsHistoryEntry[] = (userData?.pointsHistory || []).map((entry) => {
+      const normalizedType: PointsHistoryEntry['type'] =
+        entry.type === 'redemption'
+          ? 'redemption'
+          : entry.type === 'pending'
+            ? 'pending'
+            : 'earned';
+      const statusValue = (entry.status || '').toString().toLowerCase();
+      const normalizedStatus =
+        ['pending', 'awaiting', 'in review', 'applied'].includes(statusValue)
+          ? 'pending'
+          : statusValue
+            ? 'confirmed'
+            : normalizedType === 'earned'
+              ? 'confirmed'
+              : undefined;
 
       return {
         ...entry,
@@ -651,8 +647,63 @@ export default function BonusPage() {
       const bDate = new Date(b.timestamp || "").getTime();
       return Number.isNaN(bDate) ? -1 : Number.isNaN(aDate) ? 1 : bDate - aDate;
     });
-  }, [userData.pointsHistory, visits, redemptions]);
+  }, [userData, visits, redemptions]);
 
+  if (!userData) {
+    return (
+      <div className="container mx-auto px-4 py-8 max-w-2xl">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Trophy className="h-6 w-6" />
+              Bonus Points Portal
+            </CardTitle>
+            <CardDescription>
+              Enter your email to view your points and available rewards
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="email">Email Address</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  placeholder="your@email.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && fetchUserPoints()}
+                />
+              </div>
+
+              {error && (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertTitle>Error</AlertTitle>
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
+              )}
+
+              <Button
+                onClick={fetchUserPoints}
+                className="w-full"
+                disabled={isLoading}
+              >
+                {isLoading ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Loading...
+                  </>
+                ) : (
+                  'View My Points'
+                )}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
   //const partnerStats = userData.statistics?.visitsByPartner || [];
   //const pointsHistory = userData.pointsHistory || [];
 
