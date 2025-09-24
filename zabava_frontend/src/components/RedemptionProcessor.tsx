@@ -155,7 +155,12 @@ export function RedemptionProcessor({ partnerId, token }: { partnerId: string; t
             placeholder="Enter redemption code (e.g., RDM-XXX)"
             value={redemptionCode}
             onChange={(e) => setRedemptionCode(e.target.value)}
-            onKeyPress={(e) => e.key === 'Enter' && checkRedemption()}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                checkRedemption();
+              }
+            }}
             className="font-mono"
           />
           <Button 
