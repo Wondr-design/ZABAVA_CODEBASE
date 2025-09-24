@@ -237,8 +237,13 @@ function buildCsv(rows) {
       row.createdAt || "",
       row.scannedAt || "",
       row.visitedAt || "",
-      payloadJson ? payloadJson.replace(/"/g, '""') : "",
-    ].map((value) => `"${String(value ?? "").replace(/"/g, '""')}"`);
+      payloadJson || "",
+    ].map((value) => {
+      const stringValue = String(value ?? "");
+      const needsQuoting = /[",\n]/.test(stringValue);
+      const escaped = stringValue.replace(/"/g, '""');
+      return needsQuoting ? `"${escaped}"` : escaped;
+    });
 
     lines.push(values.join(","));
   });

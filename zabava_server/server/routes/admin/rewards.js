@@ -33,17 +33,19 @@ export default async function handler(req, res) {
 
   // Check admin authentication
   const adminSecret = req.headers['x-admin-secret'];
-  const validSecret = process.env.ADMIN_SECRET || 'zabava';
+  const validSecret = process.env.ADMIN_SECRET || '';
+  if (!validSecret) {
+    return respond(res, 500, { error: 'Server configuration error' });
+  }
   
   if (!adminSecret || adminSecret !== validSecret) {
-    console.log('Admin auth failed:', { provided: adminSecret, expected: validSecret });
+    console.log('Admin auth failed');
     return respond(res, 401, { error: 'Unauthorized - Invalid admin secret' });
   }
 
   try {
     // Extract reward ID from path if present
-    const pathParts = req.url.split('/');
-    const rewardId = pathParts.length > 4 ? pathParts[4] : null;
+    const rewardId = (req.query && req.query.rewardId) ? req.query.rewardId : null;
 
     switch (req.method) {
       case 'GET':
