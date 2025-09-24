@@ -1243,7 +1243,10 @@ export default function BonusPage() {
                 <div className="flex justify-between items-center mt-2">
                   <span className="text-sm">Your Balance After:</span>
                   <span className="font-bold">
-                    {userData.user.availablePoints - selectedReward.pointsCost}{" "}
+                    {Math.max(
+                      0,
+                      availablePoints - normalizePoints(selectedReward.pointsCost)
+                    )}{" "}
                     pts
                   </span>
                 </div>
